@@ -1,5 +1,6 @@
 // Radweg Tycoon – Kachel-Viewer: Kamera, Detailstufen, Raster-Cache, Auswahl, Overlays.
 import { TileStore, isRoad } from './tiles.js';
+import { Spiel, AUSBAU, gesamt, wendeAn, strassenzug } from './game.js';
 import { Painter, buildPatterns, stroke, offsetLine, bikeValues, condColor, riskColor, drawCrossSection, clamp } from './render.js';
 
 const $ = id => document.getElementById(id);
@@ -21,7 +22,7 @@ const params = new URLSearchParams(location.search);
 const region = params.get('region') || 'lippe';
 const base = params.get('karte') || `daten/${region}/karte/`;
 
-let man, store;
+let man, store, spiel;
 const view = $('view'), vctx = view.getContext('2d'), mapwin = $('mapwin');
 let dpr = 1, vw = 0, vh = 0;
 const cam = { x: 0, y: 0, z: 0.05 };
@@ -40,6 +41,10 @@ async function start() {
     return;
   }
   store = new TileStore(base, man, () => { dirty = true; });
+  spiel = new Spiel(man.slug);
+  store.patchFor = id => spiel.patchFor(id);
+  spiel.onChange = renderSpiel;
+  setupSpiel();
   $('region').textContent = man.name;
   $('stand').textContent = man.osm_stand ? ' · OSM-Stand ' + new Date(man.osm_stand).toLocaleDateString('de-DE') : '';
   renderStats();
@@ -151,6 +156,7 @@ function draw() {
   drawMask();
   if (overlay) drawOverlay(top);
   if (hover && hover !== selected) { vctx.lineCap = 'round'; stroke(vctx, hover.P, hover.half * 2 + 1.5, 'rgba(255,255,255,.28)'); }
+  for (const z of zugSel) if (z !== selected) stroke(vctx, z.P, Math.max(z.half * 2 + 1, 2.5 / cam.z), 'rgba(255,226,90,.45)');
   if (selected) {
     const o = selected.half + .6, w = Math.max(.3, 2 / cam.z);
     vctx.lineCap = 'butt'; stroke(vctx, offsetLine(selected.P, o), w, '#ffe25a', [3, 2]); stroke(vctx, offsetLine(selected.P, -o), w, '#ffe25a', [3, 2]);
@@ -264,7 +270,7 @@ const SURF = { asphalt: 'Asphalt', concrete: 'Beton', concrete_plates: 'Betonpla
 const EST = { tempo: 'Tempo', gehweg: 'Gehweg', belag: 'Belag', zustand: 'Zustand', radweg_belag: 'Radwegbelag', radweg_zustand: 'Radwegzustand' };
 function condBar(label, v, sub, est) { const col = v >= 80 ? 'var(--ok)' : v >= 50 ? 'var(--warn)' : 'var(--bad)'; return `<div class="cond"><span>${label} <span class="lbl">${sub}</span>${est ? ' <span class="est">geschätzt</span>' : ''}</span><b>${Math.round(v)}</b><div class="bar"><s style="width:${v}%;background:${col}"></s></div></div>`; }
 function inspect(r) {
-  selected = r; dirty = true;
+  selected = r; dirty = true; if (!r) zugSel = [];
   const el = $('inspect');
   if (!r) { $('insp-kind').textContent = ''; el.innerHTML = '<div class="insp-title">Nichts ausgewählt</div><div class="insp-sub">Nah heranzoomen und eine Straße oder einen Weg anklicken: Querschnitt, Belag, Zustand und die OSM-Daten.</div>'; return; }
   const m = r.m, bv = bikeValues(m), est = new Set(m.est || []);
@@ -292,9 +298,53 @@ function inspect(r) {
   if (est.size) h += `<div class="est">Geschätzt, weil in OSM nicht eingetragen: ${[...est].map(e => EST[e] || e).join(', ')}</div>`;
   const skip = new Set(['name', 'ref', 'est', 'routes']);
   h += `<details class="raw"><summary>Spielmodell (alle Felder)</summary><dl class="kv">${Object.entries(m).filter(([k]) => !skip.has(k)).map(([k, v]) => `<dt>${k}</dt><dd>${esc(Array.isArray(v) ? v.join(', ') : v)}</dd>`).join('')}</dl></details>`;
+  h += bauPanel(r);
   h += `<div class="osm"><a href="https://www.openstreetmap.org/way/${r.w}" target="_blank" rel="noopener">Weg ${r.w} auf OpenStreetMap ansehen</a></div>`;
   el.innerHTML = h;
   drawCrossSection($('xs'), m);
+}
+
+/* ----------------------------- Spiel: Bauen ----------------------------- */
+const eur = v => fmt(v) + ' €';
+let zugModus = false, zugSel = [];
+function bauPanel(r) {
+  const k = spiel.s.kanten[r.id];
+  let h = '<div class="bau"><div class="lbl" style="margin:8px 0 4px">Ausbauen</div>';
+  if (k) { const v0 = bikeValues(k.m0), v1 = bikeValues(r.m); h += `<div class="chip good" style="display:inline-block;margin-bottom:4px">Ausgebaut · Risiko ${Math.round(v0.risk * 100)} → ${Math.round(v1.risk * 100)}</div>`; }
+  const zug = zugModus ? strassenzug(store, r) : [r];
+  zugSel = zug.length > 1 ? zug : [];
+  const name = r.m.name || r.m.ref;
+  h += `<label class="zug"><input type="checkbox" id="zug" ${zugModus ? 'checked' : ''} ${name ? '' : 'disabled'}> ganzer Straßenzug${name ? ` (${zug.length} Abschnitte, ${fmt(zug.reduce((a, x) => a + x.len, 0) / 1000, 2)} km geladen)` : ' (ohne Namen)'}</label>`;
+  const opts = AUSBAU.map(a => { const z = zug.filter(x => a.gilt(x.m)); return { a, z, c: gesamt(a, z) }; }).filter(o => o.z.length);
+  if (!opts.length) h += '<div class="note">Hier gibt es nichts auszubauen.</div>';
+  h += opts.map(o => `<button class="bev bau-btn" data-bau="${o.a.id}" ${o.c > spiel.s.budget ? 'disabled' : ''} title="${esc(o.a.info)}"><span>${o.a.name}</span><b>${eur(o.c)}</b></button>`).join('');
+  return h + '</div>';
+}
+function baue(id) {
+  if (!selected) return;
+  const a = AUSBAU.find(x => x.id === id);
+  const zug = zugModus ? strassenzug(store, selected) : [selected];
+  const e = spiel.bauen(a, zug, selected.m.name || selected.m.ref || '');
+  if (!e) return;
+  nachBau(`${a.name}${e.name ? ' · ' + e.name : ''}: ${e.kanten.length} Abschnitt${e.kanten.length > 1 ? 'e' : ''} für ${eur(e.kosten)}`);
+}
+function nachBau(msg) {
+  wendeAn(store, spiel); chunks.clear(); dirty = true;
+  if (selected) inspect(selected);
+  if (msg) { $('bau-msg').textContent = msg; }
+}
+function renderSpiel() {
+  const b = spiel.bilanz();
+  $('kasse').textContent = eur(spiel.s.budget);
+  $('bilanz').innerHTML = `<dl class="kv"><dt>Aufträge</dt><dd>${b.auftraege}</dd><dt>Ausgebaut</dt><dd>${fmt(b.km, 1)} km</dd><dt>Risiko gesenkt</dt><dd>${fmt(b.risikoKm, 1)} km·Pkt</dd><dt>Komfort gewonnen</dt><dd>${fmt(b.komfortKm, 1)} km·Pkt</dd></dl>`;
+  $('undo').disabled = !spiel.s.log.length;
+}
+function setupSpiel() {
+  $('inspect').addEventListener('click', e => { const b = e.target.closest('[data-bau]'); if (b) baue(b.dataset.bau); });
+  $('inspect').addEventListener('change', e => { if (e.target.id === 'zug') { zugModus = e.target.checked; if (selected) inspect(selected); dirty = true; } });
+  $('undo').onclick = () => { const e = spiel.rueckgaengig(); if (e) nachBau('Rückgängig: ' + (AUSBAU.find(a => a.id === e.a)?.name || '') + ' (' + eur(e.kosten) + ' zurück)'); };
+  $('neu').onclick = () => { if (!$('neu').dataset.sicher) { $('neu').dataset.sicher = 1; $('neu').textContent = 'Wirklich? Nochmal klicken'; setTimeout(() => { delete $('neu').dataset.sicher; $('neu').textContent = 'Neues Spiel'; }, 3000); return; } spiel.neu(); nachBau('Neues Spiel gestartet.'); };
+  renderSpiel();
 }
 
 /* ----------------------------- Panels ----------------------------- */

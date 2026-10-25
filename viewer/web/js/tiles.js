@@ -76,8 +76,9 @@ export class TileStore {
     out.lines = (t.lines || []).map(l => ({ k: l.k, name: l.name, P: pts(l.c) }));
     out.roads = (t.roads || []).map(r => {
       const P = pts(r.c);
-      const m = r.m;
-      const road = { id: r.id, w: r.w, a: r.a, b: r.b, len: r.len, own: !!r.own, m, P, bb: bb(P) };
+      const p = this.patchFor && this.patchFor(r.id);
+      const m = p ? { ...r.m, ...p } : r.m;
+      const road = { id: r.id, w: r.w, a: r.a, b: r.b, len: r.len, own: !!r.own, m, m0: r.m, P, bb: bb(P) };
       road.half = halfWidth(m);
       return road;
     });

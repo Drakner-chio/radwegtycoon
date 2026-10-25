@@ -71,7 +71,8 @@ geschätzt ist.
 ## Nächste Schritte
 
 1. ~~Kachel-Viewer~~ erledigt: `viewer/` (siehe unten).
-2. Spiel auf dem Graphen: Simulation mit Vorfahrt, Ampeln, Kreisverkehren; Bauen pro Straßenzug.
+2. Spiel auf dem Graphen: ~~Bauen pro Kante/Straßenzug~~ (Stufe 1 erledigt, `viewer/web/js/game.js`);
+   offen: Verkehrssimulation mit Vorfahrt, Ampeln, Kreisverkehren, Nachfrage/Zufriedenheit, Jahresbudget.
 3. Grobe Ebene: Verkehrsströme zwischen Orten, geeicht mit Straßenverkehrszählung und Pendlerstatistik.
 4. Weitere Daten: Zensus-Raster (Einwohner), Unfallatlas (Radunfälle), Zählstellen.
 
@@ -86,3 +87,14 @@ geschätzt ist.
 - Muster im Pixel-Stil mit 0,5 m pro Musterpixel; Spuren, Radwege und Gehwege als versetzte Linien
   (positiv = rechts der Zeichenrichtung).
 - Der Inspektor zeigt das Spielmodell einer Kante; geschätzte Felder (`est`) sind markiert.
+
+## Spiel, Stufe 1: Bauen (`viewer/web/js/game.js`)
+
+- Ein Ausbau ist ein Patch auf das Spielmodell einer Kante (dieselben Felder wie in den Kacheln,
+  z. B. `fac_l/fac_r`, `tsurf/tcond`, `ms`, `frs`). Beim Dekodieren einer Kachel wird der Patch
+  über das Original gelegt (`m0` bleibt erhalten), dadurch zeichnet die Karte den Ausbau sofort.
+- Spielstand im Browser (`localStorage`, Schlüssel `rtc-spiel-<slug>`), verknüpft über die Kanten-IDs.
+  Jeder Auftrag hat einen Logeintrag mit dem Vorzustand → Rückgängig ist exakt.
+- Kosten: €/m Länge (Fahrbahn erneuern: €/m² über `cw`), Pauschale einmal pro Auftrag.
+- Straßenzug: gleiche Bezeichnung (Name oder Nummer), über Knoten verbunden, in den geladenen Detailkacheln.
+- Wirkung: Risiko und Komfort aus `bikeValues()` vorher/nachher, längengewichtet.

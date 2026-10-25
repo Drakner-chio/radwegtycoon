@@ -82,3 +82,9 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--sign);outline-o
   .side{width:auto;overflow:visible;padding-right:0}
   .search{margin-left:0} .search input{width:100%}
 }
+.kasse b{color:var(--ok)}
+.bau-btn{display:flex;justify-content:space-between;gap:8px;width:100%;margin:3px 0;text-align:left}
+.bau-btn b{font-family:var(--f-num);font-weight:400;font-size:16px}
+.bau-btn:disabled{opacity:.5;cursor:not-allowed}
+.zug{display:flex;gap:6px;align-items:center;font-size:12px;margin-bottom:4px}
+.row-btns{display:flex;gap:6px;margin-top:6px}

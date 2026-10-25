@@ -14,6 +14,7 @@
   <header class="topbar win">
     <div class="brand"><img src="logo.svg" alt="" width="32" height="32">
       <div><div class="brand-name">Radweg Tycoon · <span id="region">…</span></div><div class="brand-sub">Kartenviewer<span id="stand"></span></div></div></div>
+    <div class="fact kasse"><span class="lbl">Haushalt</span><b id="kasse">–</b></div>
     <div class="facts" id="facts"></div>
     <label class="search"><span class="lbl">Ort suchen</span><input id="suche" list="orte" placeholder="z. B. Kreisstadt" autocomplete="off"><datalist id="orte"></datalist></label>
   </header>
@@ -35,8 +36,9 @@
     </section>
     <aside class="side">
       <section class="win panel"><h2>Info <span class="lbl" id="insp-kind"></span></h2><div id="inspect"></div></section>
+      <section class="win panel"><h2>Bauamt</h2><div id="bilanz"></div><div class="note" id="bau-msg">Straße anklicken und im Info-Fenster ausbauen.</div><div class="row-btns"><button class="bev" id="undo">Rückgängig</button><button class="bev" id="neu">Neues Spiel</button></div></section>
       <section class="win panel"><h2>Bestandsaufnahme</h2><div id="survey"></div></section>
-      <section class="win panel note">Mausrad zoomt, Ziehen verschiebt. Ab Ortsansicht lassen sich Straßen anklicken. Werte, die in OSM fehlen, sind geschätzt und gelb markiert.</section>
+      <section class="win panel note">Mausrad zoomt, Ziehen verschiebt. Ab Ortsansicht lassen sich Straßen anklicken und ausbauen; der Spielstand bleibt im Browser. Werte, die in OSM fehlen, sind geschätzt und gelb markiert.</section>
     </aside>
   </div>
 </div>
