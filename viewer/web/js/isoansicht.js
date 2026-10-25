@@ -168,7 +168,8 @@ function gebaeudeModell(b, salt) {
   const dach = C.dach[Math.floor(hashStr(salt + 'd') * C.dach.length)];
   const c = schwerpunkt(p);
   const sh = hashStr(salt + 's');
-  return { schornstein: sattel && sh < .65 ? (sh * 2.4 - .8) : 0, p: sattel ? null : p, r, sattel, H: wandH, wand, dach, flach: C.flach[Math.floor(h * 3)], fenster: !garage, gewerbe, cx: c[0], cy: c[1], A };
+  const walm = sattel && hashStr(salt + 'w') < .32 && r.la > r.lb * 1.15, solar = sattel && hashStr(salt + 'pv') < .22;
+  return { walm, solar, schornstein: sattel && sh < .65 ? (sh * 2.4 - .8) : 0, p: sattel ? null : p, r, sattel, H: wandH, wand, dach, flach: C.flach[Math.floor(h * 3)], fenster: !garage, gewerbe, cx: c[0], cy: c[1], A };
 }
 function bereite(t) {
   if (t._iso) return t._iso;
@@ -253,6 +254,9 @@ function strassen(c, roads, ox, oy) {
       band(c, r.P, sd > 0 ? d : -(d + .3), sd > 0 ? d + .3 : -d, C.bord, ox, oy); d += .3;
       if (fac === 3) { band(c, r.P, sd > 0 ? d : -(d + 1.6), sd > 0 ? d + 1.6 : -d, (m.tsurf || 'asphalt') === 'asphalt' ? rad : pfl, ox, oy); d += 1.8; }
       if (sw) band(c, r.P, sd > 0 ? d : -(d + sw), sd > 0 ? d + sw : -d, geh, ox, oy); } }
+  // Kreuzungsecken: Gehweg- und Bordscheibe, damit die Ecken rund geschlossen sind
+  const gradK = new Map(), swK = new Map(), cwK = new Map(); for (const r of roads) if (isRoad(r.m)) for (const [n, q] of [[r.a, r.P[0]], [r.b, r.P[r.P.length - 1]]]) { gradK.set(n, (gradK.get(n) || 0) + 1); swK.set(n, Math.max(swK.get(n) || 0, r.m.sw_l || 0, r.m.sw_r || 0)); cwK.set(n, [Math.max((cwK.get(n) || [0])[0], r.m.cw || 0), q]); }
+  for (const [n, g] of gradK) { if (g < 3) continue; const [cw, q] = cwK.get(n), sw = swK.get(n); if (sw) scheibe(c, q[0], q[1], cw + .3 + sw, geh, ox, oy); scheibe(c, q[0], q[1], cw + .3, C.bord, ox, oy); }
   // Fahrbahn (Kreuzungen über Scheiben an den Enden)
   for (const r of roads) { const m = r.m; if (!isRoad(m)) continue; band(c, r.P, -m.cw, m.cw, m.surf === 'asphalt' || !m.surf ? asph : pfl, ox, oy); }
   // Kreuzungsflächen nur an Knoten mit mindestens zwei Straßen (keine Scheiben an Sackgassen)
@@ -267,6 +271,24 @@ function strassen(c, roads, ox, oy) {
       if (fac === 2) { band(c, Pi, sd > 0 ? m.cw - 1.6 : -m.cw, sd > 0 ? m.cw : -m.cw + 1.6, rad, ox, oy); linie(c, Pi, sd * (m.cw - 1.65), .15, C.markierung, null, ox, oy); }
       if (fac === 1) linie(c, Pi, sd * (m.cw - 1.5), .15, C.markierung, [1, 1], ox, oy); }
     if (!m.oneway && m.cw >= 2.5 && ['L', 'dorf', 'auto'].includes(m.cls)) linie(c, Pi, 0, .15, C.markierung, m.cls === 'dorf' ? [2, 4] : [3, 3], ox, oy); }
+  // Zebrastreifen an markierten Querungen, Haltelinien vor Ampeln
+  const byId = new Map(roads.map(r => [r.id, r]));
+  for (const n of knotenListe) {
+    if (n.f === 'crossing' && n.on && byId.has(n.on)) { const r = byId.get(n.on); if (isRoad(r.m) && ['L', 'dorf', 'wohn'].includes(r.m.cls)) zebra(c, r, n.x, n.y, ox, oy); }
+    if (n.f === 'traffic_signals' && !n.on) for (const r of roads) if (isRoad(r.m) && (r.a === n.id || r.b === n.id)) haltelinie(c, r, r.b === n.id, ox, oy);
+  }
+}
+let knotenListe = [];
+function richtungBei(r, x, y) { let bi = 1, bd = 1e18; for (let i = 1; i < r.P.length; i++) { const mx = (r.P[i][0] + r.P[i - 1][0]) / 2, my = (r.P[i][1] + r.P[i - 1][1]) / 2, d = (mx - x) ** 2 + (my - y) ** 2; if (d < bd) { bd = d; bi = i; } } const a = r.P[bi - 1], b = r.P[bi], l = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1; return [(b[0] - a[0]) / l, (b[1] - a[1]) / l]; }
+function quad(c, pts, farbe, ox, oy) { c.beginPath(); pts.forEach((q, i) => { const p = P(q[0], q[1]); i ? c.lineTo(p[0] + ox, p[1] + oy) : c.moveTo(p[0] + ox, p[1] + oy); }); c.closePath(); c.fillStyle = farbe; c.fill(); }
+function zebra(c, r, x, y, ox, oy) {
+  const [tx, ty] = richtungBei(r, x, y), nx = -ty, ny = tx, cw = r.m.cw || 3;
+  for (let k = -cw + .25; k < cw - .3; k += 1) quad(c, [[x - tx * 1.5 + nx * k, y - ty * 1.5 + ny * k], [x + tx * 1.5 + nx * k, y + ty * 1.5 + ny * k], [x + tx * 1.5 + nx * (k + .5), y + ty * 1.5 + ny * (k + .5)], [x - tx * 1.5 + nx * (k + .5), y - ty * 1.5 + ny * (k + .5)]], '#ece6d6', ox, oy);
+}
+function haltelinie(c, r, amEnde, ox, oy) {
+  const L = r.P.length, q = amEnde ? r.P[L - 1] : r.P[0], q2 = amEnde ? r.P[L - 2] : r.P[1], l = Math.hypot(q[0] - q2[0], q[1] - q2[1]) || 1;
+  const hx = (q[0] - q2[0]) / l, hy = (q[1] - q2[1]) / l, ab = Math.min(l * .8, (r.m.cw || 3) + 4), x = q[0] - hx * ab, y = q[1] - hy * ab, nx = -hy, ny = hx, cw = r.m.oneway ? -(r.m.cw || 3) : 0;
+  quad(c, [[x + nx * cw, y + ny * cw], [x + nx * (r.m.cw || 3), y + ny * (r.m.cw || 3)], [x + nx * (r.m.cw || 3) - hx * .5, y + ny * (r.m.cw || 3) - hy * .5], [x + nx * cw - hx * .5, y + ny * cw - hy * .5]], '#ece6d6', ox, oy);
 }
 function kuerzen(Pl, d) { // Polylinie an beiden Enden um d kürzen (Markierung nicht in die Kreuzung)
   const out = []; let acc = 0; const L = []; for (let i = 1; i < Pl.length; i++) L.push(Math.hypot(Pl[i][0] - Pl[i - 1][0], Pl[i][1] - Pl[i - 1][1]));
@@ -331,6 +353,8 @@ function gebaeudeInnen(c, h, p, ox, oy) {
   }
   const r = h.r, ue = .45, la = r.la + ue, lb = r.lb + ue, rh = Math.min(4.2, r.lb * .8), z = h.H, zf = h.H + rh;
   const k = (sa, sb) => [r.cx + r.ax * la * sa + r.bx * lb * sb, r.cy + r.ay * la * sa + r.by * lb * sb];
+  tuer(c, h, r, ox, oy);
+  if (h.walm) return walmdach(c, h, r, k, la, lb, z, zf, ox, oy);
   const R1 = [r.cx - r.ax * la, r.cy - r.ay * la], R2 = [r.cx + r.ax * la, r.cy + r.ay * la];
   // Giebel (Dreiecke an den Schmalseiten, ohne Überstand)
   for (const s of [-1, 1]) {
@@ -352,9 +376,44 @@ function gebaeudeInnen(c, h, p, ox, oy) {
       for (let i = 1; i < n; i++) { const t = i / n, A = [q[0][0] + (q[3][0] - q[0][0]) * t, q[0][1] + (q[3][1] - q[0][1]) * t], B = [q[1][0] + (q[2][0] - q[1][0]) * t, q[1][1] + (q[2][1] - q[1][1]) * t]; c.moveTo(Math.round(A[0] + ox) + .5, Math.round(A[1] + oy) + .5); c.lineTo(Math.round(B[0] + ox) + .5, Math.round(B[1] + oy) + .5); }
       c.stroke();
     }
+    if (h.solar && dachSued(r, f[4])) solar(c, q, ox, oy);
     c.strokeStyle = hell(h.dach, .62); c.lineWidth = 1; c.beginPath(); c.moveTo(q[2][0] + ox, q[2][1] + oy); c.lineTo(q[3][0] + ox, q[3][1] + oy); c.stroke();
   }
   if (h.schornstein) { const t = h.schornstein, x = r.cx + r.ax * r.la * t, y = r.cy + r.ay * r.la * t; kiste(c, x, y, r.ax, r.ay, .7, .7, zf - .9, zf + .7, '#8a4a36', ox, oy); }
+}
+// Dachfläche zeigt nach Süden (Welt-y nach Süden)? -> Solarmodule
+const dachSued = (r, seite) => r.by * seite > .45;
+function solar(c, q, ox, oy) {
+  const L = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+  const A = L(L(q[0], q[1], .15), L(q[3], q[2], .15), .2), B = L(L(q[0], q[1], .85), L(q[3], q[2], .85), .2), Cc = L(L(q[0], q[1], .85), L(q[3], q[2], .85), .75), D = L(L(q[0], q[1], .15), L(q[3], q[2], .15), .75);
+  c.beginPath(); [A, B, Cc, D].forEach((p, i) => i ? c.lineTo(p[0] + ox, p[1] + oy) : c.moveTo(p[0] + ox, p[1] + oy)); c.closePath(); c.fillStyle = '#1d2c48'; c.fill();
+  if (S >= 3) { c.strokeStyle = '#4d6a94'; c.lineWidth = 1; c.beginPath(); for (let t = .25; t < 1; t += .25) { const u = L(A, B, t), w = L(D, Cc, t); c.moveTo(u[0] + ox, u[1] + oy); c.lineTo(w[0] + ox, w[1] + oy); } const m1 = L(A, D, .5), m2 = L(B, Cc, .5); c.moveTo(m1[0] + ox, m1[1] + oy); c.lineTo(m2[0] + ox, m2[1] + oy); c.stroke(); }
+}
+// Haustür auf der sichtbaren Längsseite
+function tuer(c, h, r, ox, oy) {
+  if (S < 2) return;
+  for (const sb of [-1, 1]) {
+    const [nu, nv] = rot(r.cx + r.bx * sb, r.cy + r.by * sb), [cu, cv] = rot(r.cx, r.cy); if ((nu - cu) + (nv - cv) <= 0) continue;
+    const t = (hashStr('t' + r.cx) - .5) * r.la, m = [r.cx + r.ax * t + r.bx * r.lb * sb * 1.01, r.cy + r.ay * t + r.by * r.lb * sb * 1.01];
+    const q = [P(m[0] - r.ax * .5, m[1] - r.ay * .5, 0), P(m[0] + r.ax * .5, m[1] + r.ay * .5, 0), P(m[0] + r.ax * .5, m[1] + r.ay * .5, 2.1), P(m[0] - r.ax * .5, m[1] - r.ay * .5, 2.1)];
+    c.beginPath(); q.forEach((p, i) => i ? c.lineTo(p[0] + ox, p[1] + oy) : c.moveTo(p[0] + ox, p[1] + oy)); c.closePath(); c.fillStyle = '#5a3a26'; c.fill();
+    return;
+  }
+}
+// Walmdach: First kürzer, vier geneigte Flächen
+function walmdach(c, h, r, k, la, lb, z, zf, ox, oy) {
+  const d = Math.max(.5, la - lb), R1 = [r.cx - r.ax * d, r.cy - r.ay * d], R2 = [r.cx + r.ax * d, r.cy + r.ay * d];
+  const fl = [[[k(-1, -1), k(1, -1), R2, R1], [0, -1]], [[k(-1, 1), k(1, 1), R2, R1], [0, 1]], [[k(-1, -1), k(-1, 1), R1], [-1, 0]], [[k(1, -1), k(1, 1), R2], [1, 0]]]
+    .map(([pts, n]) => { const m = schwerpunkt(pts); return [pts, n, tiefe(m[0], m[1])]; }).sort((a, b) => a[2] - b[2]);
+  for (const [pts, [na, nb]] of fl) {
+    const [nu, nv] = rot(r.cx + r.ax * na + r.bx * nb, r.cy + r.ay * na + r.by * nb), [cu, cv] = rot(r.cx, r.cy), du = nu - cu, dv = nv - cv;
+    const q = pts.map((p, i) => P(p[0], p[1], i < 2 ? z - .25 : zf));
+    c.beginPath(); q.forEach((p, i) => i ? c.lineTo(p[0] + ox, p[1] + oy) : c.moveTo(p[0] + ox, p[1] + oy)); c.closePath();
+    c.fillStyle = hell(h.dach, du + dv < 0 ? .78 : dv > du ? 1.12 : .92); c.fill();
+    if (h.solar && q.length === 4 && dachSued(r, nb) && nb) solar(c, q, ox, oy);
+    c.strokeStyle = hell(h.dach, .65); c.lineWidth = 1; c.stroke();
+  }
+  if (h.schornstein) { const t = h.schornstein * .6, x = r.cx + r.ax * r.la * t, y = r.cy + r.ay * r.la * t; kiste(c, x, y, r.ax, r.ay, .7, .7, zf - .9, zf + .7, '#8a4a36', ox, oy); }
 }
 function laterne(c, l, ox, oy) {
   const p = P(l.x, l.y), h = Math.round(5.2 * S * HZ), x = Math.round(p[0] + ox), y = Math.round(p[1] + oy), w = Math.max(1, Math.round(S * .25));
@@ -394,6 +453,7 @@ function baueStatisch() {
   }
   for (const t of tiles) for (const l of t.lines) if (l.k.startsWith('w:')) linie(c, l.P, 0, l.k === 'w:river' ? 12 : l.k === 'w:canal' ? 10 : l.k === 'w:stream' ? 1.8 : 1.1, C.wasser[0], null, ox, oy);
     else if (l.k === 'r:rail') { linie(c, l.P, 0, 3, '#8a8072', null, ox, oy); linie(c, l.P, .7, .2, '#c3c7cc', null, ox, oy); linie(c, l.P, -.7, .2, '#c3c7cc', null, ox, oy); }
+  knotenListe = []; for (const t of tiles) for (const n of t.nodes) if (n.f === 'crossing' || n.f === 'traffic_signals') knotenListe.push(n);
   const roads = new Map(); for (const t of tiles) for (const rd of t.roads) if (!roads.has(rd.id) && !(rd.bb[2] < r[0] || rd.bb[0] > r[2] || rd.bb[3] < r[1] || rd.bb[1] > r[3])) roads.set(rd.id, rd);
   strassen(c, [...roads.values()].sort((a, b) => (isRoad(a.m) ? 1 : 0) - (isRoad(b.m) ? 1 : 0)), ox, oy);
   schummerung(c, r, ox, oy);
@@ -541,6 +601,11 @@ function passant(c, p) {
   c.fillStyle = '#e8c39e'; c.fillRect(Math.round(k[0]), Math.round(k[1]) - 1, w, Math.max(1, Math.round(S * .3)));
   return [x, y];
 }
+function bake(c, x, y) { // rot-weiße Absperrbake
+  const p = P(x, y), w = Math.max(1, Math.round(S * .35)), h = Math.max(4, Math.round(S * 1.1 * HZ)), X = Math.round(p[0]), Y = Math.round(p[1]);
+  for (let i = 0; i < 4; i++) { c.fillStyle = i % 2 ? '#f2efe6' : '#d8452f'; c.fillRect(X, Y - h + Math.floor(i * h / 4), w, Math.ceil(h / 4)); }
+  c.fillStyle = '#1c211e'; c.fillRect(X - 1, Y, w + 2, 1);
+}
 function kumuliert(Pl) { const c = new Float64Array(Pl.length); for (let i = 1; i < Pl.length; i++) c[i] = c[i - 1] + Math.hypot(Pl[i][0] - Pl[i - 1][0], Pl[i][1] - Pl[i - 1][1]); return c; }
 // Parkplätze: Stellplätze im Raster, zu ~65 % belegt (deterministisch)
 function parkende(t) {
@@ -577,12 +642,14 @@ export function zeichne(vctx, opt = {}) {
   const fz = [];
   if (opt.live) for (const g of live.agents) { const q = at(g.e, g.s); fz.push({ g, d: tiefe(q[0], q[1]) }); }
   for (const a of statisch.ampeln) fz.push({ a, d: a.d });
+  if (opt.baustellen) for (const r of opt.baustellen) { const cum = r._cum || (r._cum = kumuliert(r.P)), Lg = cum[cum.length - 1];
+    for (let s0 = 2; s0 < Lg; s0 += 5) for (const sd of [1, -1]) { const q = at({ P: r.P, cum, L: Lg }, s0), off = sd * (r.half + .4), x = q[0] - q[3] * off, y = q[1] + q[2] * off; fz.push({ bake: [x, y], d: tiefe(x, y) }); } }
   if (opt.live && S >= 1.5) for (const p of passanten(statisch.roads, opt.zeit || 0)) { const q = at({ P: p.r.P, cum: p.r._cum || (p.r._cum = kumuliert(p.r.P)), L: p.r.len }, p.s); fz.push({ p, d: tiefe(q[0], q[1]) }); }
   fz.sort((a, b) => a.d - b.d);
   const neu = new Set();
   for (const f of fz) {
     let px, py;
-    if (f.g) { const [x, y] = fahrzeug(lctx, f.g); [px, py] = P(x, y); } else if (f.p) { const [x, y] = passant(lctx, f.p); [px, py] = P(x, y); } else { ampelZeichnen(lctx, f.a); [px, py] = P(f.a.x, f.a.y); }
+    if (f.bake) { bake(lctx, f.bake[0], f.bake[1]); [px, py] = P(f.bake[0], f.bake[1]); } else if (f.g) { const [x, y] = fahrzeug(lctx, f.g); [px, py] = P(x, y); } else if (f.p) { const [x, y] = passant(lctx, f.p); [px, py] = P(x, y); } else { ampelZeichnen(lctx, f.a); [px, py] = P(f.a.x, f.a.y); }
     px -= ou; py -= ov; // in Koordinaten der statischen Szene
     for (const o of statisch.obj) if (o.d > f.d + 1 && o.bb && px > o.bb[0] - 6 && px < o.bb[2] + 6 && py > o.bb[1] - 6 && py < o.bb[3] + 8) neu.add(o);
   }
@@ -644,6 +711,7 @@ export function setzeZoom(i) { cam.zi = Math.max(0, Math.min(ZOOMS.length - 1, i
 export function drehen(d) { cam.rot = (cam.rot + d + 4) % 4; statisch = null; }
 export function haeuserZeigen(an) { haeuser = an; statisch = null; }
 // Bildschirmpunkt (CSS-Pixel) -> Welt
+export function bildVon(x, y) { const p = P(x, y, 2); return [p[0] * PX, p[1] * PX]; }
 export function weltVon(cssX, cssY) {
   const px = cssX / PX, py = cssY / PX; let q = welt(px, py);
   for (let i = 0; i < 4; i++) q = welt(px, py + gel(q[0], q[1]) * S * HZ);

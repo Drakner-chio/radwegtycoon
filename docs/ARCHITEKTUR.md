@@ -145,17 +145,28 @@ geschätzt ist.
   Radfahrstreifen/Hochbord/Fahrradstraße) und „Abbiegekonflikte“ (Rechtsabbieger über Hochbord-Radweg,
   während ein Rad weniger als 18 m entfernt ist), jeweils pro Stunde.
 
-## Prototyp: isometrische Detailansicht (`viewer/web/iso.html`, `js/iso.js`)
+## Spielansicht (isometrisch, `viewer/web/js/isoansicht.js`)
 
-- Aufruf aus der Karte mit `I` (Bildmitte wird übernommen) oder `iso.html?region=<slug>&x=<m>&y=<m>`.
-- 2:1-Isometrie, vierfach drehbar (`Q`/`E`), Zoomstufen 1,5–6 px/m, Pixel-Look durch Zeichnen in halber
-  Auflösung und hartes Hochskalieren. Alles prozedural aus den Kacheln, deterministisch (Hash):
-  Gebäude mit Wandfarbe, Fensterraster je Geschoss, Sockel, Satteldach mit Ziegelreihen und Schornstein bei
-  rechteckigen Wohnhäusern (kleinstes umschließendes Rechteck), sonst Flachdach; Bäume in Wald/Park/Garten,
-  Büsche um Wohnhäuser, Laternen alle ~30 m, Ampelmasten mit aktueller Phase aus dem Live-Verkehr.
-- Statische Szene wird mit Rand zwischengespeichert; Fahrzeuge werden je Bild darüber gezeichnet, davor
-  liegende Gebäude/Bäume über ihnen neu (Verdeckung). `H` zeigt Gebäude nur als Grundriss (freie Sicht).
-- Offen: Klicken/Bauen in der Iso-Ansicht, Zebrastreifen, Parkplätze, Dachformen für Winkelhäuser, Nacht.
+- Die Karte ist Überblick und Planung (mit allen Auswertungsebenen); gespielt wird in der Spielansicht.
+  Weites Hineinzoomen in der Karte (> 2,4 px/m) wechselt hinein, Herauszoomen unter die kleinste Stufe zurück;
+  Taste `I`. Werkzeuge, Auswahl und Info funktionieren in beiden Ansichten (gleiche Weltkoordinaten,
+  Markierungen werden je Ansicht projiziert). Ebenen schalten auf die Karte zurück.
+- 2:1-Isometrie, vierfach drehbar (`Q`/`E`), Zoomstufen 1–6 Pixel/m in halber Auflösung (Pixel-Look).
+- Gelände aus dem Höhenmodell (1,5-fach überhöht, relativ zur Bildmitte), verdichtete Linien und Flächen,
+  Hangschattierung in 10-m-Zellen, Gebäude auf ihrer tiefsten Ecke (Sockel am Hang); Klicks werden iterativ
+  auf das Gelände zurückprojiziert.
+- Gebäude: Fenster je Geschoss, Sockel, Haustür, Sattel- oder Walmdach mit Ziegelreihen, Schornstein,
+  Solarmodule auf Süddächern; Flachdächer für Gewerbe. Bäume, Büsche, Laternen, Ampeln mit aktueller Phase,
+  gebaute Kreisel, Zebrastreifen an markierten Querungen, Haltelinien vor Ampeln, runde Kreuzungsecken.
+- Leben: Fahrzeugtypen des Live-Verkehrs (Pkw, Kleinwagen, Transporter, Bus) mit Licht, Radler mit
+  Tretbewegung, Passanten auf Gehwegen, belegte Parkplätze.
+- Tageszeiten (`U`): Tönung per Multiplikation; nachts beleuchtete Fenster auf einer eigenen Lichtebene
+  (Verdeckung, indem jedes Objekt seine Silhouette aus der Lichtebene löscht), Lichtkegel von Laternen und
+  Scheinwerfern.
+- Bau-Rückmeldung: Baken entlang neuer Strecken (25 s), Kosten und Wirkung (Radanteil, Zufriedenheit) als
+  aufsteigende Zahl über dem Bauort.
+- Statische Szene mit Rand zwischengespeichert; Fahrzeuge, Passanten, Ampeln und Baken je Bild darüber,
+  davorliegende Gebäude/Bäume über ihnen neu gezeichnet. `iso.html` leitet auf die Spielansicht weiter.
 
 ## Höhen (`pipeline/rtc/hoehe.py`, `viewer/web/js/hoehe.js`)
 

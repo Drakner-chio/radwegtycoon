@@ -239,6 +239,7 @@ function draw() {
   if (liveAktiv()) live.zeichnen(vctx, cam.z);
   if (overlay) drawOverlay(top);
   if (werkzeug !== 'auswahl') zeichneWerkzeug();
+  zeichneBaustellenKarte();
   if (hover && hover !== selected) { vctx.lineCap = 'round'; stroke(vctx, hover.P, hover.half * 2 + 1.5, 'rgba(255,255,255,.28)'); }
   for (const z of zugSel) if (z !== selected) stroke(vctx, z.P, Math.max(z.half * 2 + 1, 2.5 / cam.z), 'rgba(255,226,90,.45)');
   if (selected) {
@@ -379,7 +380,8 @@ function setupVerkehr() {
   verkehr = new Verkehr(base, man, id => spiel.patchFor(id));
   verkehr.knotenBau = id => spiel.knotenFor(id);
   verkehr.onStatus = t => { $('vk-status').textContent = t; };
-  verkehr.onErgebnis = (erg, vorher) => { renderVerkehr(erg, vorher); ortAktuell = null; updateSurvey(true); if (overlay === 'verkehr' || overlay === 'zuf') dirty = true; if (selected) inspect(selected); };
+  verkehr.onErgebnis = (erg, vorher) => { renderVerkehr(erg, vorher);
+    if (wirkungOrt && vorher) { const da = (erg.anteil - vorher.anteil) * 100, dz = erg.zufrieden - vorher.zufrieden; setTimeout(((o) => () => schwebend(o.x, o.y, `${pkt(da)} % Rad · ${pkt(dz)} Zufr.`, da >= 0 ? 'gut' : 'schlecht'))(wirkungOrt), 700); wirkungOrt = null; } ortAktuell = null; updateSurvey(true); if (overlay === 'verkehr' || overlay === 'zuf') dirty = true; if (selected) inspect(selected); };
   $('vk-status').textContent = 'Verkehrsnetz wird geladen …';
   verkehr.laden().then(() => verkehr.rechnen()).catch(e => { $('vk-status').textContent = 'Verkehr: ' + e.message; });
 }
@@ -541,9 +543,28 @@ function baue(id) {
   const namen = [...new Set(zug.map(x => x.m.name || x.m.ref).filter(Boolean))];
   const e = spiel.bauen(a, zug, namen.length === 1 ? namen[0] : namen.length ? namen.length + ' Straßen' : '');
   if (!e) return;
-  nachBau(`${a.name}${e.name ? ' · ' + e.name : ''}: ${e.kanten.length} Abschnitt${e.kanten.length > 1 ? 'e' : ''} für ${eur(e.kosten)}`);
+  nachBau(`${a.name}${e.name ? ' · ' + e.name : ''}: ${e.kanten.length} Abschnitt${e.kanten.length > 1 ? 'e' : ''} für ${eur(e.kosten)}`, e);
 }
-function nachBau(msg) {
+/* Rückmeldung beim Bauen: Baustelle für ein paar Sekunden, Kosten und Wirkung als aufsteigende Zahl */
+let baustellen = [], wirkungOrt = null;
+function bauOrt(e) {
+  const netz = aktivesNetz();
+  if (e.kanten && e.kanten.length) { const r = netz.kanten.get(e.kanten[Math.floor(e.kanten.length / 2)]); if (r) { const q = r.P[Math.floor(r.P.length / 2)]; return [q[0], q[1]]; } }
+  if (e.knoten && e.knoten.length) return knotenPos(e.knoten[0]);
+  return null;
+}
+function schwebend(x, y, text, art) {
+  const p = modus === 'iso' ? Iso.bildVon(x, y) : [(x - cam.x) * cam.z, (y - cam.y) * cam.z];
+  if (p[0] < 0 || p[1] < 0 || p[0] > vw || p[1] > vh) return;
+  const d = document.createElement('div'); d.className = 'float ' + (art || ''); d.textContent = text;
+  d.style.left = p[0] + 'px'; d.style.top = p[1] + 'px'; $('floats').appendChild(d); setTimeout(() => d.remove(), 2800);
+}
+function nachBau(msg, e) {
+  if (e) {
+    const ort = bauOrt(e);
+    if (e.kanten && e.kanten.length) baustellen.push({ ids: new Set(e.kanten), bis: performance.now() + 25000 });
+    if (ort) { schwebend(ort[0], ort[1], '−' + eur(e.kosten), 'kosten'); wirkungOrt = verkehr && verkehr.erg ? { x: ort[0], y: ort[1] } : null; }
+  }
   wendeAn(store, spiel); chunks.clear(); Iso.ungueltig(); dirty = true; updateSurvey(true); verkehrNeu();
   if (selected) inspect(selected);
   if (msg) { $('bau-msg').textContent = msg; }
@@ -754,7 +775,7 @@ function werkzeugKlick(wx, wy) {
     if (!r || !ok(r)) { $('bau-msg').textContent = a.art === 'weg' ? 'Dieses Werkzeug baut Wege, keine Straßen.' : 'Dieses Werkzeug baut Straßen, keine Wege.'; return; }
     const n = netz.kanten.get(r.id) || r;
     if (!wege.length) wege.push([n]);
-    else { const p = pfad(netz, letzte(), n, ok); if (p) wege.push(p.slice(1)); else $('bau-msg').textContent = 'Keine durchgehende Verbindung gefunden.'; }
+    else { const p = pfad(netz, letzte(), n, ok); if (p && p.length > 1) wege.push(p.slice(1)); else if (!p) $('bau-msg').textContent = 'Keine durchgehende Verbindung gefunden.'; }
     vorschau = null; vorschauVon = '';
   } else {
     const k = naechsteKreuzung(netz, wx, wy, 30 / pxProM() + 8); kSel = k;
@@ -781,11 +802,11 @@ function werkzeugBauen() {
     const e = spiel.bauen(a, alle, namen.length === 1 ? namen[0] : namen.length ? namen.length + ' Straßen' : '');
     if (!e) { $('bau-msg').textContent = 'Nicht genug Geld oder nichts Passendes ausgewählt.'; return; }
     wege = []; vorschau = null; vorschauVon = '';
-    nachBau(`${a.name}${e.name ? ' · ' + e.name : ''}: ${e.kanten.length} Abschnitt${e.kanten.length > 1 ? 'e' : ''} für ${eur(e.kosten)}`);
+    nachBau(`${a.name}${e.name ? ' · ' + e.name : ''}: ${e.kanten.length} Abschnitt${e.kanten.length > 1 ? 'e' : ''} für ${eur(e.kosten)}`, e);
   } else if (kSel) {
     const a = knotenbauVon(werkzeug), k = knotenInfo(aktivesNetz(), kSel.id, spiel), name = k.namen.join(' / ') || 'Kreuzung';
     const e = spiel.bauenKnoten(a, kSel.id, k, name); if (!e) return;
-    kSel = null; nachBau(`${a.name} gebaut: ${name} für ${eur(e.kosten)}`);
+    kSel = null; nachBau(`${a.name} gebaut: ${name} für ${eur(e.kosten)}`, e);
   }
   renderToolpanel();
 }
@@ -796,7 +817,7 @@ $('tp-abbruch').onclick = () => { if (wege.length || kSel) { wege = []; kSel = n
 $('tp-zug').onclick = () => { // ganze Straße des ersten Abschnitts
   const a = ausbauVon(werkzeug); if (!a || !wege.length) return;
   const zug = strassenzug(store, wege[0][0]).filter(erlaubtFuer(a)), netz = aktivesNetz();
-  wege.push(zug.map(r => netz.kanten.get(r.id) || r)); renderToolpanel(); dirty = true;
+  if (zug.length) wege.push(zug.map(r => netz.kanten.get(r.id) || r)); renderToolpanel(); dirty = true;
 };
 const ZEIGE = (r, breite, farbe, strich) => stroke(vctx, r.P, breite, farbe, strich);
 function zeichneWerkzeug() {
@@ -806,7 +827,7 @@ function zeichneWerkzeug() {
     const w = r => Math.max(r.half * 2 + 2, 5 / cam.z);
     if (vorschau) for (const r of vorschau) ZEIGE(r, w(r), a.gilt(r.m) ? 'rgba(92,207,138,.38)' : 'rgba(220,220,220,.22)');
     for (const r of strecke(false)) ZEIGE(r, w(r), a.gilt(r.m) ? 'rgba(92,207,138,.85)' : 'rgba(220,220,220,.5)', a.gilt(r.m) ? null : [2 / cam.z, 2 / cam.z]);
-    for (const seg of wege) { const r = seg[seg.length - 1], P = r.P, q = P[Math.floor(P.length / 2)]; vctx.beginPath(); vctx.arc(q[0], q[1], 6 / cam.z, 0, Math.PI * 2); vctx.fillStyle = '#5ccf8a'; vctx.fill(); vctx.lineWidth = 2 / cam.z; vctx.strokeStyle = '#0d1f15'; vctx.stroke(); }
+    for (const seg of wege) { if (!seg.length) continue; const r = seg[seg.length - 1], P = r.P, q = P[Math.floor(P.length / 2)]; vctx.beginPath(); vctx.arc(q[0], q[1], 6 / cam.z, 0, Math.PI * 2); vctx.fillStyle = '#5ccf8a'; vctx.fill(); vctx.lineWidth = 2 / cam.z; vctx.strokeStyle = '#0d1f15'; vctx.stroke(); }
   } else {
     for (const [k, farbe, fill] of [[kHover, 'rgba(255,255,255,.7)', null], [kSel, '#5ccf8a', 'rgba(92,207,138,.25)']]) {
       if (!k) continue; vctx.beginPath(); vctx.arc(k.x, k.y, Math.max(14, 14 / cam.z), 0, Math.PI * 2);
@@ -857,6 +878,18 @@ function zuKarte() {
   document.body.classList.remove('iso'); $('t-iso').setAttribute('aria-pressed', 'false');
   liveRect = null; liveSig = ''; hover = null; dirty = true; renderToolpanel();
 }
+function aktiveBaustellen() {
+  const now = performance.now(); baustellen = baustellen.filter(b => b.bis > now);
+  if (!baustellen.length) return [];
+  const netz = aktivesNetz(), out = [];
+  for (const b of baustellen) for (const id of b.ids) { const r = netz.kanten.get(id); if (r) out.push(r); }
+  return out;
+}
+function zeichneBaustellenKarte() {
+  const rs = aktiveBaustellen(); if (!rs.length) return; dirty = true;
+  vctx.lineCap = 'butt';
+  for (const r of rs) for (const sd of [1, -1]) stroke(vctx, offsetLine(r.P, sd * (r.half + .6)), Math.max(.5, 2.5 / cam.z), '#ff8a1e', [2, 1.5]);
+}
 function zeichneIso() {
   const m = [];
   const umriss = (r, farbe, fill) => { if (fill) m.push({ P: r.P, breite: r.half * 2 + 1, farbe: fill }); for (const sd of [1, -1]) m.push({ P: offsetLine(r.P, sd * (r.half + .6)), breite: .45, farbe }); };
@@ -864,7 +897,7 @@ function zeichneIso() {
   for (const z of zugSel) if (z !== selected) umriss(z, 'rgba(255,226,90,.7)', 'rgba(255,226,90,.12)');
   if (selected) umriss(selected, '#ffe25a', 'rgba(255,226,90,.18)');
   if (werkzeug !== 'auswahl') m.push(...werkzeugMarker());
-  const fehlt = Iso.zeichne(vctx, { live: liveAktiv(), marker: m, zeit: performance.now() / 1000 });
+  const fehlt = Iso.zeichne(vctx, { live: liveAktiv(), marker: m, zeit: performance.now() / 1000, baustellen: aktiveBaustellen() });
   // Kamera der Karte mitführen (Rückweg, gespeicherte Position)
   cam.x = Iso.cam.x - vw / cam.z / 2; cam.y = Iso.cam.y - vh / cam.z / 2;
   $('lvl').textContent = `Spielansicht · ${Iso.blick()}blick · ${fmt(Iso.pxProM(), 0)} px/m`;
@@ -876,7 +909,7 @@ function werkzeugMarker() {
   if (a) {
     if (vorschau) for (const r of vorschau) out.push({ P: r.P, breite: r.half * 2 + 2, farbe: a.gilt(r.m) ? 'rgba(92,207,138,.45)' : 'rgba(220,220,220,.3)' });
     for (const r of strecke(false)) out.push({ P: r.P, breite: r.half * 2 + 2, farbe: a.gilt(r.m) ? 'rgba(92,207,138,.85)' : 'rgba(220,220,220,.55)', strich: a.gilt(r.m) ? null : [2, 2] });
-    for (const seg of wege) { const r = seg[seg.length - 1], q = r.P[Math.floor(r.P.length / 2)]; out.push({ x: q[0], y: q[1], r: 2.5, farbe: '#0d1f15', fill: '#5ccf8a' }); }
+    for (const seg of wege) { if (!seg.length) continue; const r = seg[seg.length - 1], q = r.P[Math.floor(r.P.length / 2)]; out.push({ x: q[0], y: q[1], r: 2.5, farbe: '#0d1f15', fill: '#5ccf8a' }); }
   } else {
     if (kHover) out.push({ x: kHover.x, y: kHover.y, r: 13, farbe: 'rgba(255,255,255,.8)' });
     if (kSel) out.push({ x: kSel.x, y: kSel.y, r: 13, farbe: '#5ccf8a', fill: 'rgba(92,207,138,.3)' });

@@ -177,3 +177,7 @@ button.chip{cursor:pointer;font:inherit;font-size:11px}
   .toolpanel{top:auto;bottom:76px;width:calc(100% - 24px);min-width:0}
 }
 body:not(.iso) .nur-iso{display:none}
+#floats{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+.float{position:absolute;transform:translate(-50%,-50%);font-weight:700;font-size:15px;padding:3px 9px;border-radius:999px;background:rgba(16,22,20,.85);border:1px solid var(--line);white-space:nowrap;animation:steigen 2.6s ease-out forwards;font-variant-numeric:tabular-nums}
+.float.kosten{color:#ffb4aa}.float.gut{color:#8ff0b5}.float.schlecht{color:#ffb4aa}
+@keyframes steigen{0%{opacity:0;margin-top:8px}12%{opacity:1}75%{opacity:1}100%{opacity:0;margin-top:-56px}}
