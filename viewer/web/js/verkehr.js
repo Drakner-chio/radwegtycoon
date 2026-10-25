@@ -7,6 +7,8 @@ const u = v => v === -1 ? undefined : v;
 
 // Steigungen: 1 Höhenmeter bergauf fühlt sich wie 10 m Strecke an; über 6 % Steigung zusätzlich anstrengend
 export const BERG = { hm: 10, steilAb: 0.06, steil: 8 };
+// Kreuzungen (gefühlte Meter): Hauptstraße / Sammelstraße ohne Sicherung, mit Ampel, mit Kreisverkehr
+export const KNOTEN_STRAFE = { haupt: 45, sammel: 18, ampel: 10, kreisel: 14 };
 
 // Gefühlte Meter je Meter fürs Rad. Infinity = nicht befahrbar.
 export function radFaktor(m) {
@@ -22,7 +24,7 @@ export class Verkehr {
     // Version aus Größe und Höhenstand: nach `netz`/`hoehe` wird die neue Datei geladen, nicht die zwischengespeicherte
     const v = man.netz ? `${man.netz.bytes}-${man.hoehe ? man.hoehe.max : 0}` : '0';
     this.url = new URL(base + (man.netz && man.netz.datei || 'netz.json.gz') + '?v=' + encodeURIComponent(v), location.href).href;
-    this.patchFor = patchFor;
+    this.patchFor = patchFor; this.knotenBau = () => null;
     this.ok = !!man.netz;
     this.erg = null; this.vorher = null; this.laeuft = false; this.wieder = false;
     this.onStatus = () => {}; this.onErgebnis = () => {};
@@ -35,6 +37,14 @@ export class Verkehr {
     this.a = Int32Array.from(K.a); this.b = Int32Array.from(K.b); this.len = Float32Array.from(K.len);
     this.Z = n.zonen; this.nZ = n.zonen.x.length; this.zelle = n.zelle_m;
     this.ewSumme = this.Z.ew.reduce((s, v) => s + v, 0);
+    // Knoten: OSM-ID -> Index, größter Straßenrang und Zahl der Autostraßen je Knoten (für Knotenstrafen)
+    const nK = n.knoten.x.length; this.nK = nK;
+    this.kid = new Map(); if (n.knoten.id) n.knoten.id.forEach((id, i) => this.kid.set(id, i));
+    this.kAmpel = n.knoten.ampel ? Uint8Array.from(n.knoten.ampel) : new Uint8Array(nK);
+    this.kRang = new Uint8Array(nK); this.kStr = new Uint8Array(nK); this.kGrad = new Uint8Array(nK); this.kRund = new Uint8Array(nK);
+    const RANG = { auto: 5, L: 4, dorf: 3, wohn: 2, zufahrt: 1, spiel: 1 };
+    for (let e = 0; e < nE; e++) { const c = n.klassen[K.cls[e]], r = RANG[c] || 0, auto = r > 0 && K.car[e] !== 0;
+      for (const v of [this.a[e], this.b[e]]) { this.kGrad[v]++; if (auto) { this.kStr[v]++; if (r > this.kRang[v]) this.kRang[v] = r; } if (K.round && K.round[e] === 1) this.kRund[v] = 1; } }
     const anz = Math.max(1, Math.min(8, (navigator.hardwareConcurrency || 4) - 1));
     this.worker = [];
     await Promise.all(Array.from({ length: anz }, () => new Promise((ok, fail) => {
@@ -62,13 +72,26 @@ export class Verkehr {
     }
     return f;
   }
+  // Gefühlte Meter für das Queren einer Kreuzung: Hauptstraße ohne Ampel/Kreisel ist unangenehm
+  knotenStrafe() {
+    const st = new Float32Array(this.nK), ids = this.netz.knoten.id;
+    for (let v = 0; v < this.nK; v++) {
+      if (this.kGrad[v] < 3 || this.kStr[v] < 2) continue;
+      let p = this.kRang[v] >= 4 ? KNOTEN_STRAFE.haupt : this.kRang[v] === 3 ? KNOTEN_STRAFE.sammel : 0; if (!p) continue;
+      const b = ids ? this.knotenBau(ids[v]) : null;
+      if (this.kAmpel[v] || (b && b.ampel)) p = Math.min(p, KNOTEN_STRAFE.ampel);
+      if (this.kRund[v] || (b && b.kreisel)) p = Math.min(p, KNOTEN_STRAFE.kreisel);
+      st[v] = p;
+    }
+    return st;
+  }
   steigung(id) { const e = this.idx && this.idx.get(id), K = this.netz && this.netz.kanten; if (e === undefined || !K || !K.steil || K.steil[e] < 0) return null; return { steil: K.steil[e] / 10, auf: K.auf[e] / 10, ab: K.ab[e] / 10 }; }
 
   // Neu rechnen; während einer laufenden Rechnung wird höchstens eine weitere vorgemerkt
   async rechnen() {
     if (this.laeuft) { this.wieder = true; return; }
     this.laeuft = true; const t0 = performance.now();
-    const f = this.faktoren(), W = this.worker.length;
+    const f = this.faktoren(), strafe = this.knotenStrafe(), W = this.worker.length;
     // Zellen reihum verteilen (Lastausgleich: große Städte nicht alle in einem Block)
     const stueck = Math.max(1, Math.ceil(this.nZ / (W * 6))), auftraege = [];
     for (let v = 0; v < this.nZ; v += stueck) auftraege.push([v, Math.min(this.nZ, v + stueck)]);
@@ -89,7 +112,7 @@ export class Verkehr {
           this.onStatus(`Verkehr wird berechnet … ${Math.round(fertig / gesamt * 100)} %`);
           naechster();
         };
-        w.postMessage({ typ: 'rechne', id: a[0], faktor: f, von: a[0], bis: a[1] });
+        w.postMessage({ typ: 'rechne', id: a[0], faktor: f, strafe, von: a[0], bis: a[1] });
       };
       naechster();
     })));
@@ -101,6 +124,7 @@ export class Verkehr {
     this.onErgebnis(this.erg, this.vorher);
     if (this.wieder) { this.wieder = false; this.rechnen(); }
   }
+  knotenPos(id) { const v = this.kid && this.kid.get(id); return v === undefined ? null : [this.kx[v], this.ky[v]]; }
   volumen(id) { const e = this.idx && this.idx.get(id); return e === undefined || !this.erg ? null : this.erg.vol[e]; }
   // Kennzahlen für einen Kreis (Ortsansicht)
   imKreis(x, y, R) {

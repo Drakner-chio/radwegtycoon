@@ -1,6 +1,7 @@
 // Radweg Tycoon – Kachel-Viewer: Kamera, Detailstufen, Raster-Cache, Auswahl, Overlays.
 import { TileStore, isRoad } from './tiles.js';
-import { Spiel, AUSBAU, gesamt, wendeAn, strassenzug } from './game.js';
+import { Spiel, AUSBAU, KNOTEN, gesamt, wendeAn, strassenzug } from './game.js';
+import { lokalesNetz, pfad, knotenInfo, naechsteKreuzung } from './werkzeug.js';
 import { Verkehr } from './verkehr.js';
 import { Live } from './live.js';
 import { Hoehen } from './hoehe.js';
@@ -154,7 +155,7 @@ function liveAktiv() { return liveAn && man && cam.z >= LIVE_MIN_Z; }
 function liveNetz(now) {
   const vx0 = cam.x, vy0 = cam.y, vx1 = cam.x + vw / cam.z, vy1 = cam.y + vh / cam.z;
   const innen = liveRect && vx0 >= liveRect[0] - 20 && vy0 >= liveRect[1] - 20 && vx1 <= liveRect[2] + 20 && vy1 <= liveRect[3] + 20;
-  const tiles = loadedTiles(0), sig = tiles.length + ':' + (verkehr && verkehr.erg ? verkehr.erg.t : 0) + ':' + spiel.s.log.length + ':' + Object.keys(spiel.s.kanten).length;
+  const tiles = loadedTiles(0), sig = tiles.length + ':' + (verkehr && verkehr.erg ? verkehr.erg.t : 0) + ':' + spiel.s.log.length + ':' + Object.keys(spiel.s.kanten).length + ':' + JSON.stringify(spiel.s.knoten).length;
   if (innen && sig === liveSig) return;
   if (now - liveBau < 700 && liveRect) return;
   liveBau = now; liveSig = sig;
@@ -167,7 +168,9 @@ function liveNetz(now) {
     for (const n of t.nodes) if (n.f === 'traffic_signals' && !n.on) signale.add(n.id);
   }
   const radVol = id => { const v = verkehr && verkehr.erg ? verkehr.volumen(id) : null; return v === null ? 15 : v; };
-  live.bauen(roads, signale, radVol, liveRect);
+  const kreisel = new Set();
+  for (const [id, k] of Object.entries(spiel.s.knoten)) { if (k.ampel) signale.add(Number(id)); if (k.kreisel) kreisel.add(Number(id)); }
+  live.bauen(roads, signale, radVol, liveRect, kreisel);
 }
 function liveSchritt(now) {
   const dt = Math.min(.25, (now - (liveLetzt || now)) / 1000); liveLetzt = now;
@@ -224,8 +227,10 @@ function draw() {
   }
   vctx.setTransform(s, 0, 0, s, -cam.x * s, -cam.y * s);
   drawMask();
+  zeichneKnotenBauten();
   if (liveAktiv()) live.zeichnen(vctx, cam.z);
   if (overlay) drawOverlay(top);
+  if (werkzeug !== 'auswahl') zeichneWerkzeug();
   if (hover && hover !== selected) { vctx.lineCap = 'round'; stroke(vctx, hover.P, hover.half * 2 + 1.5, 'rgba(255,255,255,.28)'); }
   for (const z of zugSel) if (z !== selected) stroke(vctx, z.P, Math.max(z.half * 2 + 1, 2.5 / cam.z), 'rgba(255,226,90,.45)');
   if (selected) {
@@ -364,6 +369,7 @@ function verkehrNeu() { if (!verkehr || !verkehr.erg) return; clearTimeout(vkT);
 function setupVerkehr() {
   if (!man.netz) { $('verkehr').innerHTML = '<div class="note">Für diese Karte gibt es noch kein Verkehrsnetz. Pipeline neu laufen lassen (Schritt „netz“).</div>'; return; }
   verkehr = new Verkehr(base, man, id => spiel.patchFor(id));
+  verkehr.knotenBau = id => spiel.knotenFor(id);
   verkehr.onStatus = t => { $('vk-status').textContent = t; };
   verkehr.onErgebnis = (erg, vorher) => { renderVerkehr(erg, vorher); ortAktuell = null; updateSurvey(true); if (overlay === 'verkehr' || overlay === 'zuf') dirty = true; if (selected) inspect(selected); };
   $('vk-status').textContent = 'Verkehrsnetz wird geladen …';
@@ -375,6 +381,8 @@ function renderVerkehr(e, v) {
   const dz = v ? ` <span class="${e.zufrieden >= v.zufrieden ? 'up' : 'down'}">${pkt(e.zufrieden - v.zufrieden)}</span>` : '';
   $('verkehr').innerHTML = `<dl class="kv"><dt>Radanteil</dt><dd>${fmt(e.anteil * 100, 1)} %${d}</dd><dt>Radfahrten am Tag</dt><dd>${fmt(e.rad)}</dd><dt>Rad-km am Tag</dt><dd>${fmt(e.radKm)}</dd><dt>Zufriedenheit</dt><dd>${fmt(e.zufrieden, 1)}${dz}</dd><dt>Einwohner (geschätzt)</dt><dd>${fmt(verkehr.ewSumme)}</dd></dl>`;
   $('vk-status').textContent = `berechnet in ${fmt(e.ms / 1000, 1)} s · Werte sind Modellschätzungen`;
+  $('top-anteil').innerHTML = `${fmt(e.anteil * 100, 1)} %${v ? ` <span class="${e.anteil >= v.anteil ? 'up' : 'down'}" style="font-size:12px">${pkt((e.anteil - v.anteil) * 100)}</span>` : ''}`;
+  $('top-zuf').innerHTML = `${fmt(e.zufrieden, 0)}${v ? ` <span class="${e.zufrieden >= v.zufrieden ? 'up' : 'down'}" style="font-size:12px">${pkt(e.zufrieden - v.zufrieden)}</span>` : ''}`;
   renderSpiel();
 }
 
@@ -463,6 +471,7 @@ const SURF = { asphalt: 'Asphalt', concrete: 'Beton', concrete_plates: 'Betonpla
 const EST = { tempo: 'Tempo', gehweg: 'Gehweg', belag: 'Belag', zustand: 'Zustand', radweg_belag: 'Radwegbelag', radweg_zustand: 'Radwegzustand' };
 function condBar(label, v, sub, est) { const col = v >= 80 ? 'var(--ok)' : v >= 50 ? 'var(--warn)' : 'var(--bad)'; return `<div class="cond"><span>${label} <span class="lbl">${sub}</span>${est ? ' <span class="est">geschätzt</span>' : ''}</span><b>${Math.round(v)}</b><div class="bar"><s style="width:${v}%;background:${col}"></s></div></div>`; }
 function inspect(r) {
+  if (r) zeigeReiter('info');
   selected = r; dirty = true; if (!r) { zugSel = []; multi = []; }
   const el = $('inspect');
   if (!r) { $('insp-kind').textContent = ''; el.innerHTML = '<div class="insp-title">Nichts ausgewählt</div><div class="insp-sub">Nah heranzoomen und eine Straße oder einen Weg anklicken: Querschnitt, Belag, Zustand und die OSM-Daten.</div>'; return; }
@@ -532,6 +541,7 @@ function nachBau(msg) {
   if (msg) { $('bau-msg').textContent = msg; }
 }
 function renderSpiel() {
+  if (typeof renderToolpanel === 'function' && werkzeug !== 'auswahl') renderToolpanel();
   const b = spiel.bilanz();
   $('kasse').textContent = eur(spiel.s.budget);
   $('jahr').textContent = 'Jahr ' + spiel.s.jahr;
@@ -540,7 +550,7 @@ function renderSpiel() {
   $('jahr-ende').textContent = erg ? `Jahr abschließen (+${eur(Spiel.einnahmen(erg))})` : 'Jahr abschließen';
   const J = spiel.s.jahre || [];
   $('jahre').innerHTML = J.length ? `<table class="jt"><tr><th>Jahr</th><th>Rad</th><th>Zufr.</th><th>Einn.</th></tr>${J.slice(-5).map(j => `<tr><td>${j.jahr}</td><td>${fmt(j.anteil * 100, 1)} %</td><td>${fmt(j.zufrieden, 0)}</td><td>${fmt(j.einnahmen / 1e6, 2)} Mio</td></tr>`).join('')}</table>` : '';
-  $('bilanz').innerHTML = `<dl class="kv"><dt>Aufträge dieses Jahr</dt><dd>${b.auftraege}</dd><dt>Ausgebaut</dt><dd>${fmt(b.km, 1)} km</dd><dt>Risiko gesenkt</dt><dd>${fmt(b.risikoKm, 1)} km·Pkt</dd><dt>Komfort gewonnen</dt><dd>${fmt(b.komfortKm, 1)} km·Pkt</dd></dl>`;
+  $('bilanz').innerHTML = `<dl class="kv"><dt>Aufträge dieses Jahr</dt><dd>${b.auftraege}</dd><dt>Ausgebaut</dt><dd>${fmt(b.km, 1)} km</dd><dt>Risiko gesenkt</dt><dd>${fmt(b.risikoKm, 1)} km·Pkt</dd><dt>Komfort gewonnen</dt><dd>${fmt(b.komfortKm, 1)} km·Pkt</dd><dt>Ampeln / Kreisel gebaut</dt><dd>${b.ampeln} / ${b.kreisel}</dd></dl>`;
   $('undo').disabled = !spiel.s.log.length;
 }
 function setupSpiel() {
@@ -551,7 +561,7 @@ function setupSpiel() {
   });
   $('legend').addEventListener('click', e => { const rt = e.target.closest('[data-route]'); if (rt) waehleRoute(rt.dataset.route); });
   $('inspect').addEventListener('change', e => { if (e.target.id === 'zug') { zugModus = e.target.checked; if (selected) inspect(selected); dirty = true; } });
-  $('undo').onclick = () => { const e = spiel.rueckgaengig(); if (e) nachBau('Rückgängig: ' + (AUSBAU.find(a => a.id === e.a)?.name || '') + ' (' + eur(e.kosten) + ' zurück)'); };
+  $('undo').onclick = () => { const e = spiel.rueckgaengig(); if (e) nachBau('Rückgängig: ' + ((AUSBAU.find(a => a.id === e.a) || KNOTEN.find(a => a.id === e.a))?.name || '') + ' (' + eur(e.kosten) + ' zurück)'); };
   $('jahr-ende').onclick = () => { if (!verkehr || !verkehr.erg || verkehr.laeuft) return; const ein = spiel.jahrAbschliessen(verkehr.erg); $('bau-msg').textContent = `Jahr ${spiel.s.jahr - 1} abgeschlossen: ${eur(ein)} Einnahmen.`; renderSpiel(); };
   $('neu').onclick = () => { if (!$('neu').dataset.sicher) { $('neu').dataset.sicher = 1; $('neu').textContent = 'Wirklich? Nochmal klicken'; setTimeout(() => { delete $('neu').dataset.sicher; $('neu').textContent = 'Neues Spiel'; }, 3000); return; } spiel.neu(); nachBau('Neues Spiel gestartet.'); };
   renderSpiel();
@@ -668,6 +678,157 @@ function setOverlay(o) {
 }
 
 /* ----------------------------- Eingabe ----------------------------- */
+/* ----------------------------- Reiter im Seitenpanel ----------------------------- */
+function zeigeReiter(t) {
+  document.querySelectorAll('[data-tab]').forEach(b => b.setAttribute('aria-selected', b.dataset.tab === t));
+  document.querySelectorAll('[data-pane]').forEach(p => p.hidden = p.dataset.pane !== t);
+  $('side').classList.remove('zu');
+}
+document.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => zeigeReiter(b.dataset.tab));
+$('side-zu').onclick = () => $('side').classList.toggle('zu');
+function legendeSetzen() { document.documentElement.style.setProperty('--legend-bottom', ($('views').offsetHeight + 26) + 'px'); }
+new ResizeObserver(legendeSetzen).observe($('views'));
+
+/* ----------------------------- Werkzeuge: Strecke und Kreuzung ----------------------------- */
+// Strecke: Start anklicken, dann Ziel (und beliebige Zwischenpunkte). Dazwischen folgt eine Wegsuche
+// der Straße über alle Abschnitte – auch die kurzen Stücke an Kreuzungen werden mitgenommen.
+const TASTE = { 1: 'schutz', 2: 'streifen', 3: 'hochbord', 4: 'radweg_san', 5: 'decke', 6: 'radweg', 7: 'asphalt', 8: 'tempo30', 9: 'frs', a: 'ampel', k: 'kreisel' };
+let werkzeug = 'auswahl', wege = [], vorschau = null, vorschauVon = '', kHover = null, kSel = null, netzCache = null, netzSig = '';
+const ausbauVon = w => AUSBAU.find(a => a.id === w), knotenbauVon = w => KNOTEN.find(a => a.id === w);
+function aktivesNetz() {
+  const tiles = loadedTiles(0), sig = tiles.length + ':' + spiel.s.log.length + ':' + Object.keys(spiel.s.kanten).length;
+  if (sig !== netzSig) { netzCache = lokalesNetz(tiles); netzSig = sig; }
+  return netzCache;
+}
+const erlaubtFuer = a => a.art === 'weg' ? r => !isRoad(r.m) && r.m.cls !== 'treppe' : r => isRoad(r.m) && r.m.cls !== 'auto';
+function strecke(mitVorschau) {
+  const out = [], seen = new Set();
+  for (const seg of mitVorschau && vorschau ? [...wege, vorschau] : wege) for (const r of seg) if (!seen.has(r.id)) { seen.add(r.id); out.push(r); }
+  return out;
+}
+const letzte = () => { const w = wege[wege.length - 1]; return w ? w[w.length - 1] : null; };
+function setWerkzeug(w) {
+  if (werkzeug === w && w !== 'auswahl') w = 'auswahl';
+  werkzeug = w; wege = []; vorschau = null; kHover = kSel = null;
+  document.querySelectorAll('[data-tool]').forEach(b => b.classList.toggle('on', b.dataset.tool === w));
+  $('mapwin').classList.toggle('bauen', w !== 'auswahl');
+  if (w !== 'auswahl') { selected = null; multi = []; zugSel = []; }
+  renderToolpanel(); dirty = true;
+}
+function renderToolpanel() {
+  const tp = $('toolpanel'); if (werkzeug === 'auswahl') { tp.hidden = true; return; }
+  tp.hidden = false; $('tp-icon').setAttribute('href', '#i-' + werkzeug);
+  const nah = cam.z >= .22;
+  if (ausbauVon(werkzeug)) {
+    const a = ausbauVon(werkzeug), alle = strecke(false), pass = alle.filter(r => a.gilt(r.m)), c = gesamt(a, pass), km = alle.reduce((s2, r) => s2 + r.len, 0) / 1000;
+    $('tp-name').textContent = a.name; $('tp-info').textContent = a.info;
+    const hinweis = !nah ? 'Zum Bauen bis zur Ortsansicht heranzoomen.' : !wege.length ? 'Start anklicken (Straße bzw. Weg).' : 'Ziel oder Zwischenpunkt anklicken · Enter oder Doppelklick baut · Rücktaste nimmt den letzten Punkt zurück.';
+    $('tp-body').innerHTML = `<div class="k"><span>Abschnitte</span><b>${alle.length}</b></div><div class="k"><span>Länge</span><b>${fmt(km, 2)} km</b></div>
+      <div class="k"><span>Passend</span><b>${pass.length}${alle.length > pass.length ? ` <small class="est">(${alle.length - pass.length} schon / nicht möglich)</small>` : ''}</b></div>
+      <div class="k cost${c > spiel.s.budget ? ' zu-teuer' : ''}"><span>Kosten</span><b>${eur(c)}</b></div><div class="hint">${hinweis}</div>`;
+    $('tp-bauen').disabled = !pass.length || c > spiel.s.budget; $('tp-zug').hidden = false; $('tp-zug').disabled = !wege.length; $('tp-zurueck').disabled = !wege.length;
+  } else {
+    const a = knotenbauVon(werkzeug), k = kSel ? knotenInfo(aktivesNetz(), kSel.id, spiel) : null, geht = k && a.gilt(k);
+    $('tp-name').textContent = a.name; $('tp-info').textContent = a.info;
+    const grund = !k ? (nah ? 'Kreuzung anklicken.' : 'Zum Bauen bis zur Ortsansicht heranzoomen.') : geht ? `Kreuzung ${k.namen.join(' / ') || '(ohne Namen)'} · ${k.strassen} Straßen` :
+      k.ampel && a.id === 'ampel' ? 'Hier gibt es schon eine Ampel.' : k.kreisel ? 'Hier gibt es schon einen Kreisverkehr.' : k.autobahn ? 'Nicht an Autobahnen.' : a.id === 'kreisel' ? 'Ein Kreisverkehr braucht mindestens drei Straßen.' : 'Hier ist keine Kreuzung von Straßen.';
+    $('tp-body').innerHTML = `<div class="k"><span>Kreuzung</span><b>${k ? k.strassen + ' Straßen' : '–'}</b></div><div class="k"><span>Höchster Rang</span><b>${k ? ['–', 'Zufahrt', 'Wohnstraße', 'Sammelstraße', 'Hauptstraße', 'Autobahn'][k.rang] : '–'}</b></div>
+      <div class="k"><span>Bestand</span><b>${k ? (k.kreisel ? 'Kreisel' : k.ampel ? 'Ampel' : 'Vorfahrt') : '–'}</b></div><div class="k cost${a.fix > spiel.s.budget ? ' zu-teuer' : ''}"><span>Kosten</span><b>${eur(a.fix)}</b></div><div class="hint">${grund}</div>`;
+    $('tp-bauen').disabled = !geht || a.fix > spiel.s.budget; $('tp-zug').hidden = true; $('tp-zurueck').disabled = !kSel;
+  }
+}
+function werkzeugKlick(wx, wy) {
+  if (cam.z < .22) { zoomAt(Math.min(cam.z * 3, 1.2), (wx - cam.x) * cam.z, (wy - cam.y) * cam.z); return; }
+  const netz = aktivesNetz();
+  if (ausbauVon(werkzeug)) {
+    const a = ausbauVon(werkzeug), r = pickRoad(wx, wy), ok = erlaubtFuer(a);
+    if (!r || !ok(r)) { $('bau-msg').textContent = a.art === 'weg' ? 'Dieses Werkzeug baut Wege, keine Straßen.' : 'Dieses Werkzeug baut Straßen, keine Wege.'; return; }
+    const n = netz.kanten.get(r.id) || r;
+    if (!wege.length) wege.push([n]);
+    else { const p = pfad(netz, letzte(), n, ok); if (p) wege.push(p.slice(1)); else $('bau-msg').textContent = 'Keine durchgehende Verbindung gefunden.'; }
+    vorschau = null; vorschauVon = '';
+  } else {
+    const k = naechsteKreuzung(netz, wx, wy, 30 / cam.z + 8); kSel = k;
+  }
+  renderToolpanel(); dirty = true;
+}
+function werkzeugHover(wx, wy) {
+  if (cam.z < .22) return;
+  const netz = aktivesNetz();
+  if (ausbauVon(werkzeug)) {
+    if (!wege.length) return;
+    const r = pickRoad(wx, wy), a = ausbauVon(werkzeug), ok = erlaubtFuer(a);
+    const key = r ? r.id : ''; if (key === vorschauVon) return; vorschauVon = key;
+    vorschau = r && ok(r) ? (pfad(netz, letzte(), netz.kanten.get(r.id) || r, ok) || [null]).slice(1).filter(Boolean) : null;
+    dirty = true;
+  } else {
+    const k = naechsteKreuzung(netz, wx, wy, 30 / cam.z + 8); if (k !== kHover) { kHover = k; dirty = true; }
+  }
+}
+function werkzeugBauen() {
+  if (ausbauVon(werkzeug)) {
+    const a = ausbauVon(werkzeug), alle = strecke(false); if (!alle.length) return;
+    const namen = [...new Set(alle.map(x => x.m.name || x.m.ref).filter(Boolean))];
+    const e = spiel.bauen(a, alle, namen.length === 1 ? namen[0] : namen.length ? namen.length + ' Straßen' : '');
+    if (!e) { $('bau-msg').textContent = 'Nicht genug Geld oder nichts Passendes ausgewählt.'; return; }
+    wege = []; vorschau = null; vorschauVon = '';
+    nachBau(`${a.name}${e.name ? ' · ' + e.name : ''}: ${e.kanten.length} Abschnitt${e.kanten.length > 1 ? 'e' : ''} für ${eur(e.kosten)}`);
+  } else if (kSel) {
+    const a = knotenbauVon(werkzeug), k = knotenInfo(aktivesNetz(), kSel.id, spiel), name = k.namen.join(' / ') || 'Kreuzung';
+    const e = spiel.bauenKnoten(a, kSel.id, k, name); if (!e) return;
+    kSel = null; nachBau(`${a.name} gebaut: ${name} für ${eur(e.kosten)}`);
+  }
+  renderToolpanel();
+}
+function werkzeugZurueck() { if (ausbauVon(werkzeug)) wege.pop(); else kSel = null; vorschau = null; vorschauVon = ''; renderToolpanel(); dirty = true; }
+document.querySelectorAll('[data-tool]').forEach(b => b.onclick = () => setWerkzeug(b.dataset.tool));
+$('tp-bauen').onclick = werkzeugBauen; $('tp-zurueck').onclick = werkzeugZurueck;
+$('tp-abbruch').onclick = () => { if (wege.length || kSel) { wege = []; kSel = null; vorschau = null; renderToolpanel(); dirty = true; } else setWerkzeug('auswahl'); };
+$('tp-zug').onclick = () => { // ganze Straße des ersten Abschnitts
+  const a = ausbauVon(werkzeug); if (!a || !wege.length) return;
+  const zug = strassenzug(store, wege[0][0]).filter(erlaubtFuer(a)), netz = aktivesNetz();
+  wege.push(zug.map(r => netz.kanten.get(r.id) || r)); renderToolpanel(); dirty = true;
+};
+const ZEIGE = (r, breite, farbe, strich) => stroke(vctx, r.P, breite, farbe, strich);
+function zeichneWerkzeug() {
+  vctx.lineCap = 'round'; vctx.lineJoin = 'round';
+  const a = ausbauVon(werkzeug);
+  if (a) {
+    const w = r => Math.max(r.half * 2 + 2, 5 / cam.z);
+    if (vorschau) for (const r of vorschau) ZEIGE(r, w(r), a.gilt(r.m) ? 'rgba(92,207,138,.38)' : 'rgba(220,220,220,.22)');
+    for (const r of strecke(false)) ZEIGE(r, w(r), a.gilt(r.m) ? 'rgba(92,207,138,.85)' : 'rgba(220,220,220,.5)', a.gilt(r.m) ? null : [2 / cam.z, 2 / cam.z]);
+    for (const seg of wege) { const r = seg[seg.length - 1], P = r.P, q = P[Math.floor(P.length / 2)]; vctx.beginPath(); vctx.arc(q[0], q[1], 6 / cam.z, 0, Math.PI * 2); vctx.fillStyle = '#5ccf8a'; vctx.fill(); vctx.lineWidth = 2 / cam.z; vctx.strokeStyle = '#0d1f15'; vctx.stroke(); }
+  } else {
+    for (const [k, farbe, fill] of [[kHover, 'rgba(255,255,255,.7)', null], [kSel, '#5ccf8a', 'rgba(92,207,138,.25)']]) {
+      if (!k) continue; vctx.beginPath(); vctx.arc(k.x, k.y, Math.max(14, 14 / cam.z), 0, Math.PI * 2);
+      if (fill) { vctx.fillStyle = fill; vctx.fill(); } vctx.lineWidth = 2.5 / cam.z; vctx.strokeStyle = farbe; vctx.stroke();
+    }
+  }
+}
+// Gebaute Ampeln und Kreisverkehre auf der Karte
+function knotenPos(id) {
+  const n = netzCache && netzCache.knoten.get(Number(id)); if (n) return [n.x, n.y];
+  return verkehr && verkehr.kid ? verkehr.knotenPos(Number(id)) : null;
+}
+function zeichneKnotenBauten() {
+  const vx0 = cam.x - 40, vy0 = cam.y - 40, vx1 = cam.x + vw / cam.z + 40, vy1 = cam.y + vh / cam.z + 40;
+  for (const [id, k] of Object.entries(spiel.s.knoten)) {
+    const p = knotenPos(id); if (!p || p[0] < vx0 || p[0] > vx1 || p[1] < vy0 || p[1] > vy1) continue;
+    const [x, y] = p;
+    if (k.kreisel) {
+      const R = Math.max(11, 6 / cam.z);
+      vctx.beginPath(); vctx.arc(x, y, R, 0, Math.PI * 2); vctx.fillStyle = '#4b4d53'; vctx.fill();
+      vctx.lineWidth = Math.max(.4, 1.2 / cam.z); vctx.strokeStyle = '#bdb8ab'; vctx.stroke();
+      vctx.beginPath(); vctx.arc(x, y, R * .48, 0, Math.PI * 2); vctx.fillStyle = '#6aa64f'; vctx.fill(); vctx.strokeStyle = '#d9d4c7'; vctx.stroke();
+      if (cam.z > 1.5) { vctx.setLineDash([1.5, 1.5]); vctx.lineWidth = .18; vctx.strokeStyle = '#e9e6dc'; vctx.beginPath(); vctx.arc(x, y, R * .75, 0, Math.PI * 2); vctx.stroke(); vctx.setLineDash([]); }
+    } else if (k.ampel) {
+      const q = Math.max(1, 10 / (3.6 * cam.z)), w = 1.4 * q, h = 3.6 * q, ox = x + 2.5 * q, oy = y - h - 1.5 * q;
+      vctx.fillStyle = '#1e2124'; vctx.fillRect(ox, oy, w, h);
+      [['#ef5a4a', .2], ['#f2c230', .5], ['#4cd07d', .8]].forEach(([c, f]) => { vctx.beginPath(); vctx.arc(ox + w / 2, oy + h * f, w * .3, 0, Math.PI * 2); vctx.fillStyle = c; vctx.fill(); });
+    }
+  }
+}
+
 const pointers = new Map(); let down = null, moved = false, pinch = null;
 const evPos = e => { const r = view.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
 view.addEventListener('pointerdown', e => {
@@ -685,6 +846,7 @@ view.addEventListener('pointermove', e => {
     return;
   }
   if (!man) return;
+  if (werkzeug !== 'auswahl') werkzeugHover(cam.x + p.x / cam.z, cam.y + p.y / cam.z);
   const r = pickRoad(cam.x + p.x / cam.z, cam.y + p.y / cam.z);
   if (r !== hover) { hover = r; dirty = true; }
   const tip = $('tip');
@@ -695,6 +857,7 @@ view.addEventListener('pointermove', e => {
 function endP(e) {
   if (!pointers.has(e.pointerId)) return; const p = pointers.get(e.pointerId); pointers.delete(e.pointerId);
   if (pinch) { if (pointers.size < 2) pinch = null; return; }
+  if (!moved && down && man && werkzeug !== 'auswahl') { werkzeugKlick(cam.x + p.x / cam.z, cam.y + p.y / cam.z); down = null; return; }
   if (!moved && down && man) { const r = pickRoad(cam.x + p.x / cam.z, cam.y + p.y / cam.z);
     if (e.shiftKey && r && selected) {
       if (!multi.length) multi = [selected];
@@ -705,6 +868,7 @@ function endP(e) {
     } else { multi = []; inspect(r); } if (!r && cam.z < .22) zoomAt(Math.min(cam.z * 3, 1.2), p.x, p.y); }
   down = null;
 }
+view.addEventListener('dblclick', () => { if (ausbauVon(werkzeug) && wege.length) werkzeugBauen(); });
 view.addEventListener('pointerup', endP); view.addEventListener('pointercancel', endP);
 view.addEventListener('pointerleave', () => { hover = null; $('tip').hidden = true; dirty = true; });
 view.addEventListener('wheel', e => { e.preventDefault(); const p = evPos(e); zoomAt(cam.z * Math.pow(1.0015, -e.deltaY), p.x, p.y); }, { passive: false });
@@ -715,6 +879,12 @@ $('t-names').onclick = () => { showNames = !showNames; $('t-names').setAttribute
 window.addEventListener('keydown', e => {
   if (e.target.closest && e.target.closest('input')) return;
   const k = e.key.toLowerCase();
+  if ((e.ctrlKey || e.metaKey) && k === 'z') { e.preventDefault(); $('undo').click(); return; }
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  if (TASTE[k]) { setWerkzeug(TASTE[k]); return; }
+  if (k === 'escape') { if (werkzeug !== 'auswahl' && (wege.length || kSel)) $('tp-abbruch').click(); else if (werkzeug !== 'auswahl') setWerkzeug('auswahl'); else inspect(null); return; }
+  if (k === 'enter' && werkzeug !== 'auswahl') { werkzeugBauen(); return; }
+  if (k === 'backspace' && werkzeug !== 'auswahl') { e.preventDefault(); werkzeugZurueck(); return; }
   if (k === 'z') setOverlay('cond'); if (k === 's') setOverlay('risk'); if (k === 'r') setOverlay('net'); if (k === 't') setOverlay('route'); if (k === 'v') setOverlay('verkehr'); if (k === 'f') setOverlay('zuf'); if (k === 'l') setLive(!liveAn); if (k === 'b') setOverlay('steig'); if (k === 'g') setRelief(!reliefAn); if (k === 'i') $('t-iso').click(); if (k === 'n') $('t-names').click();
   if (k === '+' || k === '=') $('z-in').click(); if (k === '-') $('z-out').click();
   const pan = 120 / cam.z;

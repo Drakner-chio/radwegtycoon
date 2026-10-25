@@ -171,3 +171,20 @@ geschätzt ist.
 - Karte: Schummerung (Licht aus Nordwest, 2,5- bzw. 4-fach überhöht) in den Raster-Stücken, Ebene „Steigung“ (`B`),
   Relief schaltbar (`G`), Steigung im Info-Fenster.
 - Offen: Gelände in der Iso-Ansicht, Höhenlinien.
+
+## Bauwerkzeuge und Oberfläche
+
+- Oberfläche: Karte als Vollbild, schwebende Panels (Kopfzeile mit Haushalt/Radanteil/Zufriedenheit,
+  Werkzeugleiste links, Werkzeug-Panel oben, Ansichten unten links, Seitenpanel mit Reitern Info/Bauamt/
+  Verkehr/Ort). Schriften: Inter für Text, Silkscreen für kleine Beschriftungen.
+- Streckenwerkzeug (`js/werkzeug.js`): Wegpunkte sind Kanten; zwischen zwei Wegpunkten sucht ein Dijkstra
+  auf dem geladenen Detailnetz den Verlauf (Wechsel auf andere Straßennamen/-klassen kostet 60 % mehr, damit
+  der Weg auf „seiner“ Straße bleibt). So fehlen keine kurzen Abschnitte an Kreuzungen. Straßenwerkzeuge
+  laufen nur über Straßen, Wegwerkzeuge nur über Wege; Abschnitte, auf die der Ausbau nicht passt, werden
+  angezeigt, aber nicht berechnet. „Ganze Straße“ übernimmt den Straßenzug des ersten Abschnitts.
+- Kreuzungen: Ampel (150.000 €) und Kreisverkehr (650.000 €) als Knoten-Bauten im Spielstand (`knoten`),
+  rückgängig wie Streckenausbauten. Wirkung: Live-Verkehr (Ampelphasen bzw. Kreisel mit Vorfahrt für Fahrzeuge
+  von links und Tempo ~20), Verkehrsmodell über Knotenstrafen (gefühlte Meter fürs Queren: Hauptstraße 45,
+  Sammelstraße 18, mit Ampel 10, mit Kreisel 14; `KNOTEN_STRAFE` in `verkehr.js`), Darstellung in Karte und Iso.
+- Tasten: 1–9 Streckenwerkzeuge, A Ampel, K Kreisverkehr, Enter/Doppelklick bauen, Rücktaste Wegpunkt zurück,
+  Esc abbrechen, Strg+Z rückgängig.

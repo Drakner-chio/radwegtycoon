@@ -42,9 +42,9 @@ export class Live {
   constructor() { this.E = new Map(); this.N = new Map(); this.agents = []; this.t = 0; this.next = 1; this.rect = null; this.stat = { nahUeberholen: 0, abbiegen: 0, seit: 0 }; }
 
   // Netz aus Kachel-Kanten aufbauen; vorhandene Fahrzeuge auf weiter bestehenden Kanten bleiben.
-  bauen(roads, signale, radVol, rect) {
+  bauen(roads, signale, radVol, rect, kreisel = new Set()) {
     const alt = this.E; this.E = new Map(); this.N = new Map(); this.rect = rect;
-    const node = id => { let n = this.N.get(id); if (!n) { n = { id, out: [], inn: [], x: 0, y: 0, sig: signale.has(id), rand: false }; this.N.set(id, n); } return n; };
+    const node = id => { let n = this.N.get(id); if (!n) { n = { id, out: [], inn: [], x: 0, y: 0, sig: signale.has(id) && !kreisel.has(id), kreisel: kreisel.has(id), rand: false }; this.N.set(id, n); } return n; };
     for (const r of roads) {
       if (this.E.has(r.id) || r.P.length < 2) continue;
       const m = r.m, road = isRoad(m), bv = bikeValues(m);
@@ -131,6 +131,13 @@ export class Live {
   mussWarten(g) {
     const n = this.ziel(g), nx = g.nxt; if (!nx) return false;
     if (n.sig) return !this.ampelGruen(n, g);
+    if (n.kreisel) { // gebauter Kreisverkehr: Einfahrende warten auf Fahrzeuge von links, die gleich in den Kreis fahren
+      const [hx, hy] = this.ankunft(g);
+      for (const f of n.out) { if (f === g.e) continue; const fdir = f.b === n ? 1 : -1;
+        for (const mode of ['auto', 'rad']) { const lane = f.lanes[mode + fdir]; if (!lane || !lane.length) continue; const o = lane[lane.length - 1];
+          if (o.warte > 0.5) continue; const d = this.rest(o); if (d > 14) continue; const [ox, oy] = this.ankunft(o); if (hx * oy - hy * ox > 0.3) return true; } }
+      return false;
+    }
     const e = g.e, rang = e.round ? 9 : e.rang;
     if (rang >= 9) return false;
     const [hx, hy] = this.ankunft(g), nah = g.mode === 'auto' ? 28 : 16;
@@ -168,6 +175,7 @@ export class Live {
           const warten = g.nxt && (belegt || this.mussWarten(g)) && g.warte < (g.mode === 'auto' ? 9 : 6);
           if (warten) { const h = r - 1.5; if (h < gap) { gap = Math.max(0.1, h); vl = 0; } }
           if (warten && g.v < 0.3) g.warte += dt; else if (!warten) g.warte = 0;
+          if (kn.kreisel && r < 30) { const vk = 5 + r * 0.25; if (vk < vl) { gap = Math.min(gap, r + 6); vl = vk; } } // im Kreisel langsam
           // Kurven bremsen: in Wohnstraßen/Abbiegen langsamer
           if (g.nxt && g.nxt[0] !== e && g.mode === 'auto') { const vk = 6 + r * 0.35; if (vk < vl && r < 25) { gap = Math.min(gap, r + 8); vl = Math.min(vl, vk); } }
         }

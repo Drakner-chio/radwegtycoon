@@ -372,14 +372,21 @@ function baueStatisch() {
     else if (l.k === 'r:rail') { linie(c, l.P, 0, 3, '#8a8072', null, ox, oy); linie(c, l.P, .7, .2, '#c3c7cc', null, ox, oy); linie(c, l.P, -.7, .2, '#c3c7cc', null, ox, oy); }
   const roads = new Map(); for (const t of tiles) for (const rd of t.roads) if (!roads.has(rd.id) && !(rd.bb[2] < r[0] || rd.bb[0] > r[2] || rd.bb[3] < r[1] || rd.bb[1] > r[3])) roads.set(rd.id, rd);
   strassen(c, [...roads.values()].sort((a, b) => (isRoad(a.m) ? 1 : 0) - (isRoad(b.m) ? 1 : 0)), ox, oy);
+  // gebaute Kreisverkehre: Fahrbahnring mit Mittelinsel
+  const knotenXY = new Map(); for (const rd of roads.values()) { knotenXY.set(rd.a, rd.P[0]); knotenXY.set(rd.b, rd.P[rd.P.length - 1]); }
+  for (const [id, k] of Object.entries(spiel.s.knoten || {})) {
+    const q = knotenXY.get(Number(id)); if (!q || !k.kreisel) continue;
+    scheibe(c, q[0], q[1], 12, rauschen(C.asphalt, 11), ox, oy); scheibe(c, q[0], q[1], 5.6, C.bord, ox, oy); scheibe(c, q[0], q[1], 5, wiese(C.garten, 16, 22), ox, oy);
+  }
   // Objekte nach Tiefe
   const obj = [];
   for (const t of tiles) { const z = bereite(t);
     for (const h of z.haus) if (h.cx > r[0] - 30 && h.cx < r[2] + 30 && h.cy > r[1] - 30 && h.cy < r[3] + 30) obj.push({ typ: 'h', o: h, d: tiefe(h.cx, h.cy) });
     for (const b of z.baeume) if (b.x > r[0] && b.x < r[2] && b.y > r[1] && b.y < r[3]) obj.push({ typ: 'b', o: b, d: tiefe(b.x, b.y) });
     for (const l of z.lampen) if (l.x > r[0] && l.x < r[2] && l.y > r[1] && l.y < r[3]) obj.push({ typ: 'l', o: l, d: tiefe(l.x, l.y) });
-    for (const n of t.nodes) if (n.f === 'traffic_signals' && !n.on) obj.push(...ampeln(n, roads));
+    for (const n of t.nodes) if (n.f === 'traffic_signals' && !n.on && !(spiel.s.knoten || {})[n.id]?.kreisel) obj.push(...ampeln(n, roads));
   }
+  for (const [id, k] of Object.entries(spiel.s.knoten || {})) if (k.ampel) obj.push(...ampeln({ id: Number(id) }, roads)); // gebaute Ampeln
   obj.sort((a, b) => a.d - b.d);
   for (const o of obj) {
     if (o.typ === 'h') { gebaeude(c, o.o, ox, oy); o.bb = gebBox(o.o); }
@@ -467,7 +474,8 @@ function liveNetz() {
   if (sig === liveSig) return; liveSig = sig;
   const { tiles } = kachelnIn(r), roads = [], sig2 = new Set();
   for (const t of tiles) { for (const rd of t.roads) if (!(rd.bb[2] < r[0] || rd.bb[0] > r[2] || rd.bb[3] < r[1] || rd.bb[1] > r[3])) roads.push(rd); for (const n of t.nodes) if (n.f === 'traffic_signals' && !n.on) sig2.add(n.id); }
-  live.bauen(roads, sig2, id => { const v = verkehr && verkehr.erg ? verkehr.volumen(id) : null; return v === null ? 15 : v; }, r);
+  const kr = new Set(); for (const [id, k] of Object.entries(spiel.s.knoten || {})) { if (k.ampel) sig2.add(Number(id)); if (k.kreisel) kr.add(Number(id)); }
+  live.bauen(roads, sig2, id => { const v = verkehr && verkehr.erg ? verkehr.volumen(id) : null; return v === null ? 15 : v; }, r, kr);
 }
 
 /* ----------------------------- Ablauf ----------------------------- */
@@ -497,7 +505,7 @@ async function start() {
   cam.x = x || W0 / 2; cam.y = y || H0 / 2;
   $('zurueck').href = `index.html?region=${encodeURIComponent(region)}`;
   new ResizeObserver(groesse).observe(view); groesse();
-  if (man.netz) { verkehr = new Verkehr(base, man, id => spiel.patchFor(id)); verkehr.laden().then(() => verkehr.rechnen()).catch(() => {}); }
+  if (man.netz) { verkehr = new Verkehr(base, man, id => spiel.patchFor(id)); verkehr.knotenBau = id => spiel.knotenFor(id); verkehr.laden().then(() => verkehr.rechnen()).catch(() => {}); }
   requestAnimationFrame(schleife);
 }
 

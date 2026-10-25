@@ -200,6 +200,8 @@ def test_netz(built):
     n = len(netz["knoten"]["x"])
     assert all(0 <= a < n and 0 <= b < n for a, b in zip(K["a"], K["b"]))
     assert len(set(K["id"])) == len(K["id"])
+    kn = netz["knoten"]
+    assert len(kn["id"]) == n and len(kn["ampel"]) == n and sum(kn["ampel"]) >= 1  # Testdaten haben eine Ampel
     man = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
     assert man["netz"]["datei"] == "netz.json.gz"
     # deterministisch

@@ -3,54 +3,123 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Radweg Tycoon – Kartenviewer</title>
+<title>Radweg Tycoon</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;600&family=Silkscreen:wght@400;700&family=VT323&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Silkscreen:wght@400;700&display=swap">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<div class="app">
-  <header class="topbar win">
-    <div class="brand"><img src="logo.svg" alt="" width="32" height="32">
-      <div><div class="brand-name">Radweg Tycoon · <span id="region">…</span></div><div class="brand-sub">Kartenviewer<span id="stand"></span></div></div></div>
-    <div class="fact kasse"><span class="lbl">Haushalt</span><b id="kasse">–</b></div>
-    <div class="facts" id="facts"></div>
-    <label class="search"><span class="lbl">Ort suchen</span><input id="suche" list="orte" placeholder="z. B. Kreisstadt" autocomplete="off"><datalist id="orte"></datalist></label>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-auswahl" viewBox="0 0 16 16"><path d="M3 2l9 6-4 1 2 4-2 1-2-4-3 3z" fill="currentColor"/></symbol>
+    <symbol id="i-schutz" viewBox="0 0 16 16"><rect x="1" y="2" width="14" height="12" rx="1" fill="#3b3e44"/><path d="M5 2v12" stroke="#fff" stroke-width="1.2" stroke-dasharray="2 2"/><path d="M2.5 9l1.2-3h-1.4" stroke="#fff" fill="none"/></symbol>
+    <symbol id="i-streifen" viewBox="0 0 16 16"><rect x="1" y="2" width="14" height="12" rx="1" fill="#3b3e44"/><rect x="1" y="2" width="4" height="12" fill="#b4513f"/><path d="M5.5 2v12" stroke="#fff" stroke-width="1.2"/></symbol>
+    <symbol id="i-hochbord" viewBox="0 0 16 16"><rect x="5" y="2" width="10" height="12" fill="#3b3e44"/><rect x="1" y="2" width="3.4" height="12" fill="#b4513f"/><rect x="4.2" y="2" width="1" height="12" fill="#bdb8ab"/></symbol>
+    <symbol id="i-radweg_san" viewBox="0 0 16 16"><rect x="2" y="2" width="5" height="12" fill="#b4513f"/><path d="M9 12l4-4m-2-2l3 3m-6 2l2 2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+    <symbol id="i-decke" viewBox="0 0 16 16"><rect x="1" y="7" width="14" height="7" fill="#3b3e44"/><path d="M3 5h8l2 2H5z" fill="#6f727a"/><circle cx="12.5" cy="4" r="1.5" fill="currentColor"/></symbol>
+    <symbol id="i-radweg" viewBox="0 0 16 16"><path d="M3 15C5 9 9 7 13 1" stroke="#b4513f" stroke-width="4" fill="none"/><circle cx="12" cy="12" r="2.4" fill="none" stroke="currentColor" stroke-width="1.3"/><circle cx="5" cy="12" r="2.4" fill="none" stroke="currentColor" stroke-width="1.3"/></symbol>
+    <symbol id="i-asphalt" viewBox="0 0 16 16"><path d="M3 15C5 9 9 7 13 1" stroke="#6f727a" stroke-width="4" fill="none"/><path d="M2 3h5" stroke="currentColor" stroke-width="2"/></symbol>
+    <symbol id="i-tempo30" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="#fff"/><circle cx="8" cy="8" r="5.6" fill="none" stroke="#d8452f" stroke-width="2"/><text x="8" y="10.6" text-anchor="middle" font-size="7" font-weight="700" font-family="Inter,sans-serif" fill="#111">30</text></symbol>
+    <symbol id="i-frs" viewBox="0 0 16 16"><rect x="1" y="1" width="14" height="14" rx="2" fill="#2f6fd6"/><circle cx="5" cy="10.5" r="2.2" fill="none" stroke="#fff" stroke-width="1.2"/><circle cx="11" cy="10.5" r="2.2" fill="none" stroke="#fff" stroke-width="1.2"/><path d="M5 10.5l2.5-5h3l.5 5" stroke="#fff" fill="none" stroke-width="1.1"/></symbol>
+    <symbol id="i-ampel" viewBox="0 0 16 16"><rect x="5" y="1" width="6" height="14" rx="2" fill="#1e2124"/><circle cx="8" cy="4.2" r="1.5" fill="#ef5a4a"/><circle cx="8" cy="8" r="1.5" fill="#f2c230"/><circle cx="8" cy="11.8" r="1.5" fill="#4cd07d"/></symbol>
+    <symbol id="i-kreisel" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="2.4"/><circle cx="8" cy="8" r="2.2" fill="#5cc24a"/><path d="M13 3l1 3-3-.5" fill="currentColor"/></symbol>
+    <symbol id="i-undo" viewBox="0 0 16 16"><path d="M5 4L2 7l3 3M2.5 7H10a4 4 0 010 8H7" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round"/></symbol>
+  </defs>
+</svg>
+
+<main class="stage" id="mapwin">
+  <canvas id="view" aria-label="Karte"></canvas>
+  <div class="loading" id="loading">Karte wird geladen …</div>
+
+  <header class="top">
+    <div class="glass brand"><img src="logo.svg" alt="" width="28" height="28">
+      <div><div class="brand-name">Radweg Tycoon</div><div class="brand-sub"><span id="region">…</span><span id="stand"></span></div></div></div>
+    <div class="glass stats">
+      <div class="stat money"><span class="lbl">Haushalt</span><b id="kasse">–</b></div>
+      <div class="stat"><span class="lbl" id="jahr">Jahr 1</span><b id="top-anteil" title="Radanteil (Modell)">–</b><small>Radanteil</small></div>
+      <div class="stat"><span class="lbl">&nbsp;</span><b id="top-zuf" title="Zufriedenheit (Modell)">–</b><small>Zufriedenheit</small></div>
+      <button class="btn primary" id="jahr-ende">Jahr abschließen</button>
+    </div>
+    <div class="glass searchbox"><input id="suche" list="orte" placeholder="Ort suchen …" autocomplete="off" aria-label="Ort suchen"><datalist id="orte"></datalist>
+      <span class="status"><span id="lvl"></span><span id="busy" hidden> · lädt …</span></span></div>
   </header>
-  <div class="main">
-    <section class="mapwin win" id="mapwin">
-      <canvas id="view" aria-label="Karte"></canvas>
-      <div class="loading" id="loading">Karte wird geladen …</div>
-      <div class="maptoggles">
-        <button class="bev" data-ov="cond" aria-pressed="false">Zustand (Z)</button>
-        <button class="bev" data-ov="risk" aria-pressed="false">Sicherheit (S)</button>
-        <button class="bev" data-ov="net" aria-pressed="false">Radnetz (R)</button>
-        <button class="bev" data-ov="route" aria-pressed="false">Radrouten (T)</button>
-        <button class="bev" data-ov="verkehr" aria-pressed="false">Verkehr (V)</button>
-        <button class="bev" data-ov="zuf" aria-pressed="false">Zufriedenheit (F)</button>
-        <button class="bev" data-ov="steig" aria-pressed="false">Steigung (B)</button>
-        <button class="bev" id="t-relief" aria-pressed="true">Relief (G)</button>
-        <button class="bev" id="t-live" aria-pressed="true">Live (L)</button>
-        <button class="bev" id="t-iso" title="Prototyp: isometrische Detailansicht der Bildmitte">Iso (I)</button>
-        <button class="bev" id="t-names" aria-pressed="true">Namen (N)</button>
-      </div>
-      <div class="status"><span id="lvl"></span><span id="busy" hidden>lädt …</span></div>
-      <div class="livebox" id="live" hidden></div>
-      <div class="zoom"><button class="bev" id="z-in" aria-label="Hineinzoomen">+</button><button class="bev" id="z-out" aria-label="Herauszoomen">−</button></div>
-      <div class="legend win" id="legend" hidden></div>
-      <div class="tip win" id="tip" hidden></div>
-      <div class="attr">Kartendaten © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap-Mitwirkende</a> (ODbL)</div>
-    </section>
-    <aside class="side">
-      <section class="win panel"><h2>Info <span class="lbl" id="insp-kind"></span></h2><div id="inspect"></div></section>
-      <section class="win panel"><h2>Bauamt <span class="lbl" id="jahr"></span></h2><div id="bilanz"></div><div id="jahre"></div><div class="note" id="bau-msg">Straße anklicken und im Info-Fenster ausbauen.</div><div class="row-btns"><button class="bev" id="jahr-ende">Jahr abschließen</button><button class="bev" id="undo">Rückgängig</button><button class="bev" id="neu">Neues Spiel</button></div></section>
-      <section class="win panel"><h2>Verkehr</h2><div id="verkehr"></div><div class="note" id="vk-status"></div></section>
-      <section class="win panel"><h2>Bestandsaufnahme <span class="lbl" id="survey-ort"></span></h2><div id="survey"></div></section>
-      <section class="win panel note">Mausrad zoomt, Ziehen verschiebt. Ab Ortsansicht lassen sich Straßen anklicken und ausbauen; der Spielstand bleibt im Browser. Werte, die in OSM fehlen, sind geschätzt und gelb markiert.</section>
-    </aside>
+
+  <nav class="glass tools" id="tools" aria-label="Werkzeuge">
+    <button class="tool on" data-tool="auswahl" title="Auswählen (Esc)"><svg><use href="#i-auswahl"/></svg></button>
+    <div class="sep" title="Strecke ausbauen"></div>
+    <button class="tool" data-tool="schutz" title="Schutzstreifen (1)"><svg><use href="#i-schutz"/></svg></button>
+    <button class="tool" data-tool="streifen" title="Radfahrstreifen (2)"><svg><use href="#i-streifen"/></svg></button>
+    <button class="tool" data-tool="hochbord" title="Baulicher Radweg (3)"><svg><use href="#i-hochbord"/></svg></button>
+    <button class="tool" data-tool="radweg_san" title="Radweg sanieren (4)"><svg><use href="#i-radweg_san"/></svg></button>
+    <button class="tool" data-tool="decke" title="Fahrbahn erneuern (5)"><svg><use href="#i-decke"/></svg></button>
+    <button class="tool" data-tool="radweg" title="Weg zum Radweg ausbauen (6)"><svg><use href="#i-radweg"/></svg></button>
+    <button class="tool" data-tool="asphalt" title="Weg asphaltieren (7)"><svg><use href="#i-asphalt"/></svg></button>
+    <button class="tool" data-tool="tempo30" title="Tempo 30 (8)"><svg><use href="#i-tempo30"/></svg></button>
+    <button class="tool" data-tool="frs" title="Fahrradstraße (9)"><svg><use href="#i-frs"/></svg></button>
+    <div class="sep" title="Kreuzungen"></div>
+    <button class="tool" data-tool="ampel" title="Ampel (A)"><svg><use href="#i-ampel"/></svg></button>
+    <button class="tool" data-tool="kreisel" title="Kreisverkehr (K)"><svg><use href="#i-kreisel"/></svg></button>
+    <div class="sep"></div>
+    <button class="tool" id="undo" title="Rückgängig (Strg+Z)"><svg><use href="#i-undo"/></svg></button>
+  </nav>
+
+  <section class="glass toolpanel" id="toolpanel" hidden>
+    <div class="tp-head"><svg class="tp-icon"><use id="tp-icon" href="#i-auswahl"/></svg><div><b id="tp-name"></b><div class="tp-info" id="tp-info"></div></div></div>
+    <div class="tp-body" id="tp-body"></div>
+    <div class="tp-actions">
+      <button class="btn" id="tp-zug" title="Ganze Straße des ersten Abschnitts übernehmen">Ganze Straße</button>
+      <button class="btn" id="tp-zurueck" title="Letzten Wegpunkt entfernen (Rücktaste)">Zurück</button>
+      <button class="btn" id="tp-abbruch" title="Auswahl verwerfen (Esc)">Abbrechen</button>
+      <button class="btn primary" id="tp-bauen" title="Bauen (Enter)">Bauen</button>
+    </div>
+  </section>
+
+  <div class="glass views" id="views">
+    <div class="lbl">Ansicht</div>
+    <div class="seg">
+      <button data-ov="cond" aria-pressed="false" title="Zustand (Z)">Zustand</button>
+      <button data-ov="risk" aria-pressed="false" title="Sicherheit (S)">Sicherheit</button>
+      <button data-ov="net" aria-pressed="false" title="Radnetz (R)">Radnetz</button>
+      <button data-ov="route" aria-pressed="false" title="Radrouten (T)">Routen</button>
+      <button data-ov="verkehr" aria-pressed="false" title="Radverkehr (V)">Verkehr</button>
+      <button data-ov="zuf" aria-pressed="false" title="Zufriedenheit (F)">Zufriedenh.</button>
+      <button data-ov="steig" aria-pressed="false" title="Steigung (B)">Steigung</button>
+    </div>
+    <div class="seg small">
+      <button id="t-relief" aria-pressed="true" title="Relief (G)">Relief</button>
+      <button id="t-live" aria-pressed="true" title="Live-Verkehr (L)">Live</button>
+      <button id="t-names" aria-pressed="true" title="Straßennamen (N)">Namen</button>
+      <button id="t-iso" title="Isometrische Ansicht der Bildmitte (I)">Iso ↗</button>
+    </div>
   </div>
-</div>
+  <div class="glass legend" id="legend" hidden></div>
+  <div class="livebox" id="live" hidden></div>
+
+  <div class="zoom"><button class="btn" id="z-in" aria-label="Hineinzoomen">+</button><button class="btn" id="z-out" aria-label="Herauszoomen">−</button></div>
+  <div class="glass tip" id="tip" hidden></div>
+  <div class="attr">Kartendaten © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap-Mitwirkende</a> (ODbL)</div>
+
+  <aside class="glass side" id="side">
+    <div class="tabs" role="tablist">
+      <button role="tab" data-tab="info" aria-selected="true">Info</button>
+      <button role="tab" data-tab="bauamt" aria-selected="false">Bauamt</button>
+      <button role="tab" data-tab="verkehr" aria-selected="false">Verkehr</button>
+      <button role="tab" data-tab="ort" aria-selected="false">Ort</button>
+      <button class="collapse" id="side-zu" title="Panel ein-/ausklappen">⟩</button>
+    </div>
+    <div class="tabpane" data-pane="info"><div class="pane-head"><span class="lbl" id="insp-kind"></span></div><div id="inspect"></div></div>
+    <div class="tabpane" data-pane="bauamt" hidden>
+      <div id="bilanz"></div><div id="jahre"></div><div class="note" id="bau-msg">Werkzeug links wählen, Start und Ziel anklicken, Bauen.</div>
+      <div class="row-btns"><button class="btn danger" id="neu">Neues Spiel</button></div>
+    </div>
+    <div class="tabpane" data-pane="verkehr" hidden><div id="verkehr"></div><div class="note" id="vk-status"></div></div>
+    <div class="tabpane" data-pane="ort" hidden>
+      <div class="pane-head"><span class="lbl">Bestandsaufnahme</span><span class="lbl" id="survey-ort"></span></div><div id="survey"></div>
+      <div class="lbl" style="margin-top:14px">Region</div><div class="facts" id="facts"></div>
+    </div>
+  </aside>
+</main>
 <script type="module" src="js/app.js"></script>
 </body>
 </html>

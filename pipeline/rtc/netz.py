@@ -20,7 +20,7 @@ import pathlib
 
 from .build import log
 
-FORMAT_NETZ = 1
+FORMAT_NETZ = 2  # 2: knoten.id/ampel, Kante round
 ZELLE_M = 500
 
 # Gebäudearten -> Wohnen / Arbeit. "yes" (unbekannt) wird nach Grundfläche aufgeteilt.
@@ -46,7 +46,7 @@ FREIZEIT_PREFIX = ("leisure:", "tourism:")
 FREIZEIT = {"amenity:restaurant", "amenity:cafe", "amenity:fast_food", "amenity:theatre", "amenity:cinema",
             "amenity:place_of_worship"}
 
-KANTEN_FELDER = ("ms", "bike", "car", "fac_l", "fac_r", "frs", "cond", "tcond", "oneway")
+KANTEN_FELDER = ("ms", "bike", "car", "fac_l", "fac_r", "frs", "cond", "tcond", "oneway", "round")
 
 
 def _flaeche(p, sc):
@@ -113,7 +113,8 @@ def _kachel(path):
                 z["einkauf"] += 1
             elif k.startswith(FREIZEIT_PREFIX) or k in FREIZEIT:
                 z["freizeit"] += 1
-    return kanten, {k: dict(v) for k, v in zellen.items()}
+    ampeln = [n["id"] for n in t.get("nodes", []) if n.get("f") == "traffic_signals" and not n.get("on")]
+    return kanten, {k: dict(v) for k, v in zellen.items()}, ampeln
 
 
 def bauen_netz(karte: pathlib.Path, jobs: int = 1) -> dict:
@@ -129,7 +130,8 @@ def bauen_netz(karte: pathlib.Path, jobs: int = 1) -> dict:
         teile = [_kachel(p) for p in pfade]
 
     # Kanten sammeln (eigene Kanten sind eindeutig), deterministisch sortiert
-    alle = sorted((k for kk, _ in teile for k in kk), key=lambda k: k[0])
+    alle = sorted((k for kk, _, _ in teile for k in kk), key=lambda k: k[0])
+    ampeln = {a for _, _, aa in teile for a in aa}
     knoten_idx: dict[int, int] = {}
     kx, ky = [], []
 
@@ -165,9 +167,13 @@ def bauen_netz(karte: pathlib.Path, jobs: int = 1) -> dict:
             v = m.get(f)
             K[f].append(-1 if v is None else (round(v) if isinstance(v, float) else int(v)))
 
+    knoten_ids = [0] * len(kx)
+    for osm, i in knoten_idx.items():
+        knoten_ids[i] = osm
+
     # Zellen zusammenführen
     zellen = collections.defaultdict(collections.Counter)
-    for _, zz in teile:
+    for _, zz, _ in teile:
         for k, v in zz.items():
             zellen[k].update(v)
 
@@ -223,7 +229,7 @@ def bauen_netz(karte: pathlib.Path, jobs: int = 1) -> dict:
     netz = {
         "format": FORMAT_NETZ, "zelle_m": ZELLE_M, "bbox_utm": man["bbox_utm"],
         "klassen": klassen, "belaege": belaege,
-        "knoten": {"x": kx, "y": ky},
+        "knoten": {"x": kx, "y": ky, "id": knoten_ids, "ampel": [1 if i in ampeln else 0 for i in knoten_ids]},
         "kanten": dict(K),
         "zonen": dict(Z),
         "schaetzung": {"m2_je_ew": M2_JE_EW, "nutzanteil": NUTZ, "m2_je_job": M2_JE_JOB_STD,

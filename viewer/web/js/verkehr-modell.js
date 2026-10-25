@@ -44,7 +44,7 @@ export async function ladeJsonGz(url) {
 export const radAnteil = (L, q, p = PARAM.rad) => Math.min(p.max, p.basis / (1 + Math.pow(L / p.halbKm, p.form)) * Math.exp(-p.qStrafe * (q - p.qRef)));
 
 // faktor[2e] / faktor[2e+1]: gefühlte Meter je Meter in Richtung a->b bzw. b->a (Infinity = nicht befahrbar)
-export function rechne(G, faktor, fortschritt, von = 0, bis = G.nZ) {
+export function rechne(G, faktor, fortschritt, von = 0, bis = G.nZ, strafe = null) {
   const P = PARAM, { nK, nZ, start, adjE, adjN, len, zk, zx, zy } = G;
   // Zielgewichte und Nenner des Schwerkraftmodells
   const W = new Float64Array(nZ);
@@ -84,7 +84,7 @@ export function rechne(G, faktor, fortschritt, von = 0, bis = G.nZ) {
       order[nOrd++] = u;
       for (let k = start[u]; k < start[u + 1]; k++) {
         const e = adjE[k], v = adjN[k], f = faktor[2 * e + (v === G.b[e] ? 0 : 1)]; if (f === Infinity) continue; // Richtung a->b bzw. b->a
-        const nd = du + len[e] * f;
+        const nd = du + len[e] * f + (strafe ? strafe[v] : 0); // Knotenstrafe: Kreuzung ohne Ampel/Kreisel
         if (nd < dist[v] && nd <= P.grenzeGefuehlt) {
           dist[v] = nd; lenTo[v] = lenTo[u] + len[e]; pred[v] = e;
           let i = hn++; while (i > 0) { const p = (i - 1) >> 1; if (heapD[p] <= nd) break; heapN[i] = heapN[p]; heapD[i] = heapD[p]; i = p; } heapN[i] = v; heapD[i] = nd;
