@@ -440,8 +440,11 @@ def data_bbox(src: pathlib.Path):
     return tuple(vals)
 
 
+STRIP_BATCH = 8  # Streifen je osmium-Aufruf; osmium hält je Streifen eigene ID-Listen im Speicher
+
+
 def make_strips(src: pathlib.Path, workdir: pathlib.Path, n: int):
-    """Datei in n Nord-Süd-Streifen gleicher Breite schneiden (ein Lesedurchgang, osmium extract -c).
+    """Datei in n Nord-Süd-Streifen gleicher Breite schneiden (osmium extract -c, in Paketen).
     Mit der Strategie 'smart' enthält jeder Streifen alle Wege und Flächen, die ihn berühren, vollständig."""
     x0, y0, x1, y1 = data_bbox(src)
     workdir.mkdir(parents=True, exist_ok=True)
@@ -452,10 +455,14 @@ def make_strips(src: pathlib.Path, workdir: pathlib.Path, n: int):
         name = f"streifen_{k:03d}.osm.pbf"
         extracts.append({"output": name, "bbox": [lo, y0 - 0.001, hi if k < n - 1 else x1 + 0.001, y1 + 0.001]})
         strips.append((str(workdir / name), lo, hi, k == n - 1))
-    cfg = workdir / "streifen.json"
-    cfg.write_text(json.dumps({"directory": str(workdir), "extracts": extracts}), encoding="utf-8")
-    subprocess.run(["osmium", "extract", "--overwrite", "-s", "smart", "-c", str(cfg), str(src)],
-                   check=True, capture_output=True)
+    for b in range(0, n, STRIP_BATCH):
+        cfg = workdir / f"streifen_{b:03d}.json"
+        cfg.write_text(json.dumps({"directory": str(workdir), "extracts": extracts[b:b + STRIP_BATCH]}), encoding="utf-8")
+        r = subprocess.run(["osmium", "extract", "--overwrite", "-s", "smart", "-c", str(cfg), str(src)],
+                           capture_output=True, text=True)
+        if r.returncode != 0:
+            grund = "zu wenig Arbeitsspeicher" if r.returncode in (-9, 137) else (r.stderr.strip()[-300:] or f"Code {r.returncode}")
+            raise RuntimeError(f"osmium extract (Streifen {b + 1}–{min(b + STRIP_BATCH, n)}) fehlgeschlagen: {grund}")
     return strips
 
 
@@ -479,11 +486,16 @@ def build(region, src: pathlib.Path, outdir: pathlib.Path, poly_utm=None, osm_st
             n = jobs * 3
             strips = [(str(src), x0 + k * (x1 - x0) / n, x0 + (k + 1) * (x1 - x0) / n, k == n - 1) for k in range(n)]
         elif shutil.which("osmium") and src.name.endswith(".pbf"):
-            n = min(jobs * 4, 256)
-            log(f"In {n} Streifen schneiden (osmium extract)")
+            n = min(jobs * 2, 64)
+            log(f"In {n} Streifen schneiden (osmium extract, je {STRIP_BATCH} auf einmal)")
             ts = time.time()
-            strips = make_strips(src, outdir / "_streifen", n)
-            log(f"  fertig in {time.time() - ts:.0f} s")
+            try:
+                strips = make_strips(src, outdir / "_streifen", n)
+                log(f"  fertig in {time.time() - ts:.0f} s")
+            except (RuntimeError, OSError, ValueError, subprocess.SubprocessError) as e:
+                log(f"  Streifen nicht möglich ({e}) – weiter mit Aufteilung nach OSM-ID")
+                shutil.rmtree(outdir / "_streifen", ignore_errors=True)
+                strips = None
     parts_n = len(strips) if strips else jobs
     _SHARED.update(outdir=outdir, sizes=tuple(region.kachel_m), junctions=junctions, routes=dict(p1.routes),
                    inside=prep(poly_utm) if poly_utm is not None else None, parts=parts_n, src=str(src), strips=strips)
