@@ -7,3 +7,4 @@ pillow>=10.0
 pytest>=8.0
 tifffile>=2024.1
 imagecodecs>=2024.1
+pyshp>=2.3

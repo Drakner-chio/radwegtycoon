@@ -158,7 +158,23 @@ def cmd_hoehe(region, data, args):
 
 def cmd_netz(region, data, args):
     from .netz import bauen_netz
-    bauen_netz(data / region.slug / "karte", jobs=args.jobs)
+    karte = data / region.slug / "karte"
+    vorher = json.loads((karte / "manifest.json").read_text(encoding="utf-8"))
+    bauen_netz(karte, jobs=args.jobs)
+    # Netz neu -> echte Daten und Steigungen wieder einrechnen (Quellen liegen zwischengespeichert vor)
+    if vorher.get("daten"):
+        cmd_daten(region, data, args)
+    if vorher.get("hoehe"):
+        cmd_hoehe(region, data, args)
+
+
+def cmd_daten(region, data, args):
+    from .daten import bauen_daten
+    was = tuple(args.nur.split(",")) if args.nur else tuple(region.daten or ())
+    if not was:
+        log("Daten: keine Quellen (in der Regionsdatei 'daten: [zensus, unfaelle, verkehrswerte]') – übersprungen")
+        return
+    bauen_daten(data / region.slug / "karte", data / "quellen", was)
 
 
 def cmd_vorschau(region, data, args):
@@ -188,7 +204,7 @@ def cmd_info(region, data, args):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="rtc", description="Radweg Tycoon – Kartenpipeline")
-    ap.add_argument("befehl", choices=["alles", "download", "ausschnitt", "bauen", "netz", "hoehe", "vorschau", "info"])
+    ap.add_argument("befehl", choices=["alles", "download", "ausschnitt", "bauen", "netz", "daten", "hoehe", "vorschau", "info"])
     ap.add_argument("region", help="Regionsdatei, z. B. regionen/lippe.yaml")
     ap.add_argument("--daten", default="/data", help="Arbeitsordner (Standard: /data)")
     ap.add_argument("--eingabe", help="OSM-Datei direkt verwenden (überspringt download/ausschnitt)")
@@ -196,6 +212,7 @@ def main(argv=None):
     ap.add_argument("--neu", action="store_true", help="Quellen neu herunterladen")
     ap.add_argument("--hoehe", help="Höhenquelle (überschreibt die Regionsdatei), z. B. dgm1_nrw")
     ap.add_argument("--dgm", help="Ordner mit eigenen DGM-GeoTIFFs (statt Download)")
+    ap.add_argument("--nur", help="nur diese Datenquellen, z. B. 'unfaelle,verkehrswerte'")
     ap.add_argument("--jobs", type=int, default=min(os.cpu_count() or 1, 16),
                     help="Anzahl paralleler Prozesse (Standard: Kerne, höchstens 16)")
     args = ap.parse_args(argv)
@@ -212,6 +229,8 @@ def main(argv=None):
         cmd_bauen(region, data, args)
     elif args.befehl == "netz":
         cmd_netz(region, data, args)
+    elif args.befehl == "daten":
+        cmd_daten(region, data, args)
     elif args.befehl == "hoehe":
         cmd_hoehe(region, data, args)
     elif args.befehl == "vorschau":
@@ -223,6 +242,7 @@ def main(argv=None):
             cmd_download(region, data, args)
             cmd_ausschnitt(region, data, args)
         cmd_bauen(region, data, args)
+        cmd_daten(region, data, args)
         cmd_hoehe(region, data, args)
         cmd_vorschau(region, data, args)
         cmd_info(region, data, args)

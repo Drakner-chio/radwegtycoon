@@ -237,3 +237,59 @@ def test_hoehe_aus_dgm(built, tmp_path):
         if auf < 0:
             continue
         assert abs((auf - ab) / 10 - 0.05 * (x[b] - x[a])) < 0.8
+
+
+def test_echte_daten(built, tmp_path):
+    """Zensus, Unfallatlas und Verkehrswerte im Format der echten Quellen (künstliche Inhalte)."""
+    import gzip as _gz
+    import io as _io
+    import zipfile as _zf
+    import shapefile
+    from pyproj import Transformer
+    from rtc.netz import bauen_netz
+    from rtc.daten import bauen_daten, kanten_aus_kacheln, punkt_bei
+    root, _ = built
+    bauen_netz(root)
+    man = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+    kanten = kanten_aus_kacheln(root, man)
+    lid, L = next((i, k) for i, k in kanten.items() if k["cls"] == "L")
+    mx, my, _w = punkt_bei(L["c"], .5)
+    # Zensus: 100-m-Zellen in EPSG:3035, Semikolon, wie Destatis
+    t = Transformer.from_crs("EPSG:25832", "EPSG:3035", always_xy=True)
+    zeilen = ["GITTER_ID_100m;x_mp_100m;y_mp_100m;Einwohner"]
+    for dx, dy, ew in ((0, 0, 120), (100, 0, 80), (0, 100, 0), (2500, 2500, 33)):
+        x, y = t.transform(mx + dx, my + dy)
+        zeilen.append(f"CRS3035RES100mN{int(y)}E{int(x)};{x:.0f};{y:.0f};{ew if ew else '–'}")
+    zz = tmp_path / "zensus.zip"
+    with _zf.ZipFile(zz, "w") as z:
+        z.writestr("Zensus2022_Bevoelkerungszahl_100m-Gitter.csv", "\n".join(zeilen).encode("utf-8"))
+    # Unfallatlas: ein Radunfall (schwer) an der Hauptstraße, einer weit weg
+    kopf = "OBJECTID;UIDENTSTLAE;ULAND;UREGBEZ;UKREIS;UGEMEINDE;UJAHR;UMONAT;USTUNDE;UWOCHENTAG;UKATEGORIE;UART;UTYP1;ULICHTVERH;IstRad;IstPKW;IstFuss;IstKrad;IstGkfz;IstSonstige;USTRZUSTAND;LINREFX;LINREFY;XGCSWGS84;YGCSWGS84;PLST"
+    u1 = f"1;x;05;7;66;000;2023;5;8;3;2;5;3;0;1;1;0;0;0;0;0;{mx + 2:.3f}".replace(".", ",") + f";{my:.3f}".replace(".", ",") + ";9,2;51,2;1"
+    u2 = "2;y;05;7;66;000;2023;6;9;4;3;1;6;0;0;1;0;0;0;0;0;100,0;100,0;9,2;51,2;1"
+    uz = tmp_path / "unf.zip"
+    with _zf.ZipFile(uz, "w") as z:
+        z.writestr("csv/Unfallorte2023_LinRef.csv", ("\n".join([kopf, u1, u2])).encode("utf-8"))
+    # Verkehrswerte: Linie entlang der Hauptstraße mit DTV
+    sb = {s: _io.BytesIO() for s in ("shp", "shx", "dbf")}
+    w = shapefile.Writer(shp=sb["shp"], shx=sb["shx"], dbf=sb["dbf"], shapeType=shapefile.POLYLINE)
+    for f in ("STRKL", "STRNR"):
+        w.field(f, "C", 10)
+    for f in ("DTVKFZA", "DTVSVA"):
+        w.field(f, "N", 10)
+    w.line([[list(p) for p in L["c"]]]); w.record("L", "999", 7400, 420)
+    w.close()
+    vz = tmp_path / "vw.zip"
+    with _zf.ZipFile(vz, "w") as z:
+        for s, b in sb.items():
+            z.writestr(f"VERKEHRSWERTE_line.{s}", b.getvalue())
+    info = bauen_daten(root, tmp_path, dateien={"zensus": zz, "unfaelle": [uz], "verkehrswerte": vz})
+    netz = json.loads(_gz.decompress((root / "netz.json.gz").read_bytes()))
+    K = netz["kanten"]
+    i = K["id"].index(lid)
+    assert K["dtv"][i] == 7400 and K["dtv_sv"][i] == 420
+    assert K["unf_rad"][i] == 1 and K["unf_rad_schwer"][i] == 1
+    assert info["unfaelle"]["anzahl"] == 1                  # der ferne Unfall liegt außerhalb
+    assert abs(sum(netz["zonen"]["ew"]) - 200) < 1           # 120 + 80; die ferne Zelle liegt außerhalb
+    u = json.loads(_gz.decompress((root / "unfaelle.json.gz").read_bytes()))
+    assert u["punkte"]["kante"] == [i] and u["jahre"] == [2023]

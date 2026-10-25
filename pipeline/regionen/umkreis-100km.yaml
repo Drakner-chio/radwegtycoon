@@ -12,3 +12,5 @@ gebiet:
 rand_m: 0
 # Höhen: Geländemodell von Geobasis NRW (außerhalb NRW ohne Höhen)
 hoehe: dgm1_nrw
+# Echte Daten: Zensus 2022, Unfallatlas, Verkehrswerte Straßen.NRW (nur NRW)
+daten: [zensus, unfaelle, verkehrswerte]
