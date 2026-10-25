@@ -144,3 +144,15 @@ geschätzt ist.
 - Kennzahlen: „eng überholt“ (Auto überholt Rad auf gleicher Kante mit < 1,5 m Seitenabstand, nicht bei
   Radfahrstreifen/Hochbord/Fahrradstraße) und „Abbiegekonflikte“ (Rechtsabbieger über Hochbord-Radweg,
   während ein Rad weniger als 18 m entfernt ist), jeweils pro Stunde.
+
+## Prototyp: isometrische Detailansicht (`viewer/web/iso.html`, `js/iso.js`)
+
+- Aufruf aus der Karte mit `I` (Bildmitte wird übernommen) oder `iso.html?region=<slug>&x=<m>&y=<m>`.
+- 2:1-Isometrie, vierfach drehbar (`Q`/`E`), Zoomstufen 1,5–6 px/m, Pixel-Look durch Zeichnen in halber
+  Auflösung und hartes Hochskalieren. Alles prozedural aus den Kacheln, deterministisch (Hash):
+  Gebäude mit Wandfarbe, Fensterraster je Geschoss, Sockel, Satteldach mit Ziegelreihen und Schornstein bei
+  rechteckigen Wohnhäusern (kleinstes umschließendes Rechteck), sonst Flachdach; Bäume in Wald/Park/Garten,
+  Büsche um Wohnhäuser, Laternen alle ~30 m, Ampelmasten mit aktueller Phase aus dem Live-Verkehr.
+- Statische Szene wird mit Rand zwischengespeichert; Fahrzeuge werden je Bild darüber gezeichnet, davor
+  liegende Gebäude/Bäume über ihnen neu (Verdeckung). `H` zeigt Gebäude nur als Grundriss (freie Sicht).
+- Offen: Klicken/Bauen in der Iso-Ansicht, Zebrastreifen, Parkplätze, Dachformen für Winkelhäuser, Nacht.

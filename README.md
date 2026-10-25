@@ -75,7 +75,7 @@ docker run -d --name radwegtycoon-viewer --restart unless-stopped -p 8190:80 \
 
 `region` ist der `slug` der Regionsdatei, der Viewer lädt `daten/<slug>/karte/`. Nach einem neuen
 Pipeline-Lauf reicht ein Neuladen der Seite; nach `git pull` das Image neu bauen und den Container neu starten.
-Tasten: Mausrad/+/− zoomen, Umschalt + Klick markiert mehrere Abschnitte zum gemeinsamen Ausbau, Pfeile verschieben, `Z` Zustand, `S` Sicherheit, `R` Radnetz, `T` Radrouten, `V` Verkehr, `F` Zufriedenheit, `L` Live-Verkehr, `N` Namen.
+Tasten: Mausrad/+/− zoomen, Umschalt + Klick markiert mehrere Abschnitte zum gemeinsamen Ausbau, Pfeile verschieben, `Z` Zustand, `S` Sicherheit, `R` Radnetz, `T` Radrouten, `V` Verkehr, `F` Zufriedenheit, `L` Live-Verkehr, `I` isometrische Ansicht (Prototyp), `N` Namen.
 
 ## Lizenz der Kartendaten
 

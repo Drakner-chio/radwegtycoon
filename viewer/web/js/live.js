@@ -31,7 +31,7 @@ function geom(P) {
   return cum;
 }
 // Punkt und Richtung bei Bogenlänge s
-function at(e, s) {
+export function at(e, s) {
   const P = e.P, c = e.cum; s = Math.max(0, Math.min(e.L, s));
   let lo = 0, hi = P.length - 1; while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (c[mid] <= s) lo = mid; else hi = mid; }
   const l = c[hi] - c[lo] || 1, f = (s - c[lo]) / l, dx = (P[hi][0] - P[lo][0]) / l, dy = (P[hi][1] - P[lo][1]) / l;
@@ -114,6 +114,12 @@ export class Live {
   // Richtung, aus der ein Fahrzeug in den Knoten einfährt (Einheitsvektor)
   ankunft(g) { const s = g.dir === 1 ? g.e.L - 0.5 : 0.5, p = at(g.e, s); return [p[2] * g.dir, p[3] * g.dir]; }
 
+  // Ampelfarbe für eine Zufahrt mit Richtung (hx, hy) – für die Darstellung
+  ampelFarbe(id, hx, hy) {
+    const achse = Math.abs(hx) > Math.abs(hy) ? 0 : 1, T = 26, t = (this.t + hashStr('s' + id) * T * 2) % (T * 2), phase = t < T ? 0 : 1, inPhase = t % T;
+    if (inPhase < 3) return phase !== achse ? 'gelb' : 'rot';
+    return phase === achse ? (inPhase > T - 3 ? 'gelb' : 'gruen') : 'rot';
+  }
   ampelGruen(n, g) {
     const [hx, hy] = this.ankunft(g), achse = Math.abs(hx) > Math.abs(hy) ? 0 : 1;
     const T = 26, t = (this.t + hashStr('s' + n.id) * T * 2) % (T * 2), phase = t < T ? 0 : 1, inPhase = t % T;

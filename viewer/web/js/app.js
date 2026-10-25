@@ -49,6 +49,7 @@ async function start() {
   setupSpiel();
   setupVerkehr();
   $('t-live').onclick = () => setLive(!liveAn); setLive(liveAn);
+  $('t-iso').onclick = () => { const x = cam.x + vw / cam.z / 2, y = cam.y + vh / cam.z / 2; location.href = `iso.html?region=${encodeURIComponent(region)}${params.get('karte') ? '&karte=' + encodeURIComponent(base) : ''}&x=${Math.round(x)}&y=${Math.round(y)}`; };
   $('region').textContent = man.name;
   $('stand').textContent = man.osm_stand ? ' · OSM-Stand ' + new Date(man.osm_stand).toLocaleDateString('de-DE') : '';
   renderStats();
@@ -663,7 +664,7 @@ $('t-names').onclick = () => { showNames = !showNames; $('t-names').setAttribute
 window.addEventListener('keydown', e => {
   if (e.target.closest && e.target.closest('input')) return;
   const k = e.key.toLowerCase();
-  if (k === 'z') setOverlay('cond'); if (k === 's') setOverlay('risk'); if (k === 'r') setOverlay('net'); if (k === 't') setOverlay('route'); if (k === 'v') setOverlay('verkehr'); if (k === 'f') setOverlay('zuf'); if (k === 'l') setLive(!liveAn); if (k === 'n') $('t-names').click();
+  if (k === 'z') setOverlay('cond'); if (k === 's') setOverlay('risk'); if (k === 'r') setOverlay('net'); if (k === 't') setOverlay('route'); if (k === 'v') setOverlay('verkehr'); if (k === 'f') setOverlay('zuf'); if (k === 'l') setLive(!liveAn); if (k === 'i') $('t-iso').click(); if (k === 'n') $('t-names').click();
   if (k === '+' || k === '=') $('z-in').click(); if (k === '-') $('z-out').click();
   const pan = 120 / cam.z;
   if (k === 'arrowleft') cam.x -= pan; if (k === 'arrowright') cam.x += pan; if (k === 'arrowup') cam.y -= pan; if (k === 'arrowdown') cam.y += pan;
