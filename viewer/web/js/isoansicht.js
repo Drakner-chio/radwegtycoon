@@ -48,8 +48,24 @@ function rot(x, y) {
 function unrot(u, v) {
   switch (cam.rot) { case 1: return [cam.x - v, cam.y + u]; case 2: return [cam.x - u, cam.y - v]; case 3: return [cam.x + v, cam.y - u]; default: return [cam.x + u, cam.y + v]; }
 }
-// Welt -> Pixel der niedrig aufgelösten Leinwand (ohne Rand)
-function P(x, y, z = 0) { const [u, v] = rot(x, y); return [W / 2 + (u - v) * S, H / 2 + (u + v) * S / 2 - z * S * HZ]; }
+// Gelände: Höhe relativ zur Bildmitte (h0), überhöht. gelFix setzt eine feste Grundhöhe (Gebäude, Fahrzeuge).
+const EX = 1.5;
+let h0 = 0, gelFix = null, gelFehlt = false;
+function gel(x, y) {
+  if (!hoehen || !hoehen.ok) return 0;
+  const h = hoehen.hoehe(x, y); if (h === null) return 0;
+  return (h - h0) * EX;
+}
+// Welt -> Pixel der niedrig aufgelösten Leinwand (ohne Rand); z über Gelände
+function P(x, y, z = 0) { const [u, v] = rot(x, y), g = gelFix !== null ? gelFix : gel(x, y); return [W / 2 + (u - v) * S, H / 2 + (u + v) * S / 2 - (z + g) * S * HZ]; }
+// Polylinie verdichten, damit sie dem Gelände folgt
+function dicht(Pl, max = 6, zu = false) {
+  if (!hoehen || !hoehen.ok) return Pl;
+  const out = [], n = Pl.length, m = zu ? n : n - 1;
+  for (let i = 0; i < m; i++) { const a = Pl[i], b = Pl[(i + 1) % n], l = Math.hypot(b[0] - a[0], b[1] - a[1]), k = Math.max(1, Math.ceil(l / max)); for (let j = 0; j < k; j++) out.push([a[0] + (b[0] - a[0]) * j / k, a[1] + (b[1] - a[1]) * j / k]); }
+  if (!zu) out.push(Pl[n - 1]);
+  return out;
+}
 function tiefe(x, y) { const [u, v] = rot(x, y); return u + v; }
 function welt(px, py) { const a = (px - W / 2) / S, b = (py - H / 2) * 2 / S; return unrot((a + b) / 2, (b - a) / 2); }
 
@@ -212,12 +228,12 @@ const ecken = r => [[r.cx - r.ax * r.la - r.bx * r.lb, r.cy - r.ay * r.la - r.by
 /* ----------------------------- Zeichnen: Boden und Straßen ----------------------------- */
 function band(c, Pl, d0, d1, fill, ox, oy) {
   if (d1 <= d0 || Pl.length < 2) return;
-  const A = offsetLine(Pl, d0), B = offsetLine(Pl, d1).reverse();
+  const A = dicht(offsetLine(Pl, d0)), B = dicht(offsetLine(Pl, d1)).reverse();
   c.beginPath(); [...A, ...B].forEach((q, i) => { const p = P(q[0], q[1]); i ? c.lineTo(p[0] + ox, p[1] + oy) : c.moveTo(p[0] + ox, p[1] + oy); }); c.closePath(); c.fillStyle = fill; c.fill();
 }
 function scheibe(c, x, y, r, fill, ox, oy) { const p = P(x, y); c.beginPath(); c.ellipse(p[0] + ox, p[1] + oy, r * S * 1.414, r * S * .707, 0, 0, Math.PI * 2); c.fillStyle = fill; c.fill(); }
 function linie(c, Pl, off, breite, farbe, strich, ox, oy) {
-  const L = off ? offsetLine(Pl, off) : Pl; c.beginPath(); L.forEach((q, i) => { const p = P(q[0], q[1]); i ? c.lineTo(p[0] + ox, p[1] + oy) : c.moveTo(p[0] + ox, p[1] + oy); });
+  const L = dicht(off ? offsetLine(Pl, off) : Pl); c.beginPath(); L.forEach((q, i) => { const p = P(q[0], q[1]); i ? c.lineTo(p[0] + ox, p[1] + oy) : c.moveTo(p[0] + ox, p[1] + oy); });
   c.lineWidth = Math.max(1, breite * S); c.strokeStyle = farbe; c.setLineDash(strich ? strich.map(v => v * S) : []); c.stroke(); c.setLineDash([]);
 }
 function strassen(c, roads, ox, oy) {
@@ -289,6 +305,10 @@ function wand(c, a, b, z0, z1, farbe, fenster, cx, cy, ox, oy) {
 }
 function gebaeude(c, h, ox, oy) {
   const p = h.sattel ? ecken(h.r) : h.p;
+  const alt = gelFix; gelFix = Math.min(...p.map(q => gel(q[0], q[1])));
+  try { gebaeudeInnen(c, h, p, ox, oy); } finally { gelFix = alt; }
+}
+function gebaeudeInnen(c, h, p, ox, oy) {
   // Schatten nach rechts hinten
   if (h.H > 1) { c.fillStyle = C.schatten; poly(c, p.map(q => [q[0] + h.H * .35, q[1] - h.H * .2]), 0, ox, oy); c.fill(); }
   if (!haeuser) { c.fillStyle = hell(h.wand, .9); poly(c, p, .1, ox, oy); c.fill(); c.strokeStyle = 'rgba(0,0,0,.35)'; c.lineWidth = 1; c.stroke(); return; }
@@ -350,6 +370,7 @@ function kachelnIn(r) {
   return { tiles: out, fehlt };
 }
 function baueStatisch() {
+  gelFix = null; h0 = 0; const hm = hoehen && hoehen.ok ? hoehen.hoehe(cam.x, cam.y) : null; if (hm !== null) h0 = hm;
   const r = sichtbereich(), { tiles, fehlt } = kachelnIn(r);
   st.width = W + 2 * MARGE; st.height = H + 2 * MARGE;
   const c = sctx, ox = MARGE, oy = MARGE;
@@ -357,13 +378,14 @@ function baueStatisch() {
   c.fillStyle = wiese(C.gras, 2, 21); c.fillRect(0, 0, st.width, st.height);
   for (const t of tiles) for (const a of t.areas) {
     const k = BODEN[a.k]; if (!k) continue;
-    c.beginPath(); for (const ring of a.rings) ring.forEach((q, i) => { const p = P(q[0], q[1]); i ? c.lineTo(p[0] + ox, p[1] + oy) : c.moveTo(p[0] + ox, p[1] + oy); });
+    c.beginPath(); for (const ring of a.rings) dicht(ring, 10, true).forEach((q, i) => { const p = P(q[0], q[1]); i ? c.lineTo(p[0] + ox, p[1] + oy) : c.moveTo(p[0] + ox, p[1] + oy); });
     c.fillStyle = boden(k); c.fill('evenodd');
   }
   for (const t of tiles) for (const l of t.lines) if (l.k.startsWith('w:')) linie(c, l.P, 0, l.k === 'w:river' ? 12 : l.k === 'w:canal' ? 10 : l.k === 'w:stream' ? 1.8 : 1.1, C.wasser[0], null, ox, oy);
     else if (l.k === 'r:rail') { linie(c, l.P, 0, 3, '#8a8072', null, ox, oy); linie(c, l.P, .7, .2, '#c3c7cc', null, ox, oy); linie(c, l.P, -.7, .2, '#c3c7cc', null, ox, oy); }
   const roads = new Map(); for (const t of tiles) for (const rd of t.roads) if (!roads.has(rd.id) && !(rd.bb[2] < r[0] || rd.bb[0] > r[2] || rd.bb[3] < r[1] || rd.bb[1] > r[3])) roads.set(rd.id, rd);
   strassen(c, [...roads.values()].sort((a, b) => (isRoad(a.m) ? 1 : 0) - (isRoad(b.m) ? 1 : 0)), ox, oy);
+  schummerung(c, r, ox, oy);
   // gebaute Kreisverkehre: Fahrbahnring mit Mittelinsel
   const knotenXY = new Map(); for (const rd of roads.values()) { knotenXY.set(rd.a, rd.P[0]); knotenXY.set(rd.b, rd.P[rd.P.length - 1]); }
   for (const [id, k] of Object.entries(spiel.s.knoten || {})) {
@@ -385,7 +407,21 @@ function baueStatisch() {
     else if (o.typ === 'l') { laterne(c, o.o, ox, oy); const p = P(o.o.x, o.o.y); o.bb = [p[0] - 2, p[1] - 5.5 * S, p[0] + 3, p[1]]; }
     else if (o.typ === 'b') { baum(c, o.o, ox, oy); const p = P(o.o.x, o.o.y), s = baumSprite(o.o.art, o.o.g); o.bb = [p[0] - s.w / 2, p[1] - s.h, p[0] + s.w / 2, p[1]]; }
   }
-  statisch = { cam: { ...cam }, S, W, H, obj, ampeln: obj.filter(o => o.typ === 'a'), fehlt };
+  statisch = { cam: { ...cam }, S, W, H, obj, ampeln: obj.filter(o => o.typ === 'a'), fehlt: fehlt || !!(hoehen && hoehen.ok && hoehen.laden.size) };
+}
+// Hänge schattieren: 10-m-Zellen, Licht aus Nordwest; dunkle und helle Flächen halbtransparent
+function schummerung(c, r, ox, oy) {
+  if (!hoehen || !hoehen.ok) return;
+  const Z = 10, x0 = Math.floor(r[0] / Z) * Z, y0 = Math.floor(r[1] / Z) * Z;
+  const Lx = -1, Ly = -1, Lz = 1.6, Ll = Math.hypot(Lx, Ly, Lz), s0 = Lz / Ll; // Licht aus Nordwest (y nach Süden)
+  for (let y = y0; y < r[3]; y += Z) for (let x = x0; x < r[2]; x += Z) {
+    const a = hoehen.hoehe(x, y), b = hoehen.hoehe(x + Z, y), d = hoehen.hoehe(x, y + Z); if (a === null || b === null || d === null) continue;
+    const gx = (b - a) / Z * EX * 1.5, gy = (d - a) / Z * EX * 1.5, nl = Math.hypot(gx, gy, 1), sh = (-gx * Lx - gy * Ly + Lz) / nl / Ll - s0;
+    if (Math.abs(sh) < .01) continue;
+    c.fillStyle = sh < 0 ? `rgba(14,24,38,${Math.min(.45, -sh * 1.6)})` : `rgba(255,246,214,${Math.min(.22, sh * 1.1)})`;
+    const q = [P(x, y), P(x + Z, y), P(x + Z, y + Z), P(x, y + Z)];
+    c.beginPath(); q.forEach((p, i) => i ? c.lineTo(p[0] + ox, p[1] + oy) : c.moveTo(p[0] + ox, p[1] + oy)); c.closePath(); c.fill();
+  }
 }
 function gebBox(h) { const p = h.sattel ? ecken(h.r) : h.p; let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9; for (const q of p) for (const z of [0, h.H + 4.5]) { const s = P(q[0], q[1], z); x0 = Math.min(x0, s[0]); x1 = Math.max(x1, s[0]); y0 = Math.min(y0, s[1]); y1 = Math.max(y1, s[1]); } return [x0, y0, x1, y1]; }
 // Ampelmasten: an jeder Zufahrt rechts neben der Fahrbahn, 7 m vor dem Knoten
@@ -419,6 +455,10 @@ function kiste(c, x, y, hx, hy, l, b, z0, z1, farbe, ox = 0, oy = 0) {
 }
 function fahrzeug(c, g) {
   const q = at(g.e, g.s), hx = q[2] * g.dir, hy = q[3] * g.dir, off = live.versatz(g), x = q[0] - hy * off, y = q[1] + hx * off;
+  gelFix = gel(x, y); try { fahrzeugInnen(c, g, x, y, hx, hy); } finally { gelFix = null; }
+  return [x, y];
+}
+function fahrzeugInnen(c, g, x, y, hx, hy) {
   if (g.mode === 'auto') {
     const p = P(x, y); c.fillStyle = C.schatten; c.beginPath(); c.ellipse(p[0] + S * .4, p[1] + S * .2, S * 2.4, S * 1.1, 0, 0, Math.PI * 2); c.fill();
     kiste(c, x, y, hx, hy, 4.3, 1.8, .25, .95, g.farbe);
@@ -438,7 +478,7 @@ export function zeichne(vctx, opt = {}) {
   // Verschiebung gegenüber der statischen Szene (ganze Pixel)
   const versatz = () => { const a = P(statisch.cam.x, statisch.cam.y); return [Math.round(a[0] - W / 2), Math.round(a[1] - H / 2)]; };
   let [ou, ov] = versatz();
-  if (Math.abs(ou) > MARGE * .8 || Math.abs(ov) > MARGE * .8 || (statisch.fehlt && !store.active && !store.queue.length)) { baueStatisch(); [ou, ov] = versatz(); }
+  if (Math.abs(ou) > MARGE * .8 || Math.abs(ov) > MARGE * .8 || (statisch.fehlt && !store.active && !store.queue.length && !(hoehen && hoehen.laden.size))) { baueStatisch(); [ou, ov] = versatz(); }
   lctx.imageSmoothingEnabled = false;
   lctx.drawImage(st, -MARGE + ou, -MARGE + ov);
   // Ampeln und Fahrzeuge über der Szene; davorliegende Gebäude/Bäume darüber neu
@@ -486,7 +526,11 @@ export function setzeZoom(i) { cam.zi = Math.max(0, Math.min(ZOOMS.length - 1, i
 export function drehen(d) { cam.rot = (cam.rot + d + 4) % 4; statisch = null; }
 export function haeuserZeigen(an) { haeuser = an; statisch = null; }
 // Bildschirmpunkt (CSS-Pixel) -> Welt
-export function weltVon(cssX, cssY) { return welt(cssX / PX, cssY / PX); }
+export function weltVon(cssX, cssY) {
+  const px = cssX / PX, py = cssY / PX; let q = welt(px, py);
+  for (let i = 0; i < 4; i++) q = welt(px, py + gel(q[0], q[1]) * S * HZ);
+  return q;
+}
 // Verschieben um CSS-Pixel
 export function verschiebe(dx, dy) {
   const a = dx / PX / S, b = dy / PX * 2 / S, du = -(a + b) / 2, dv = -(b - a) / 2;

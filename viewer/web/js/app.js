@@ -847,6 +847,7 @@ function zuIso(x, y, stufe = 2) {
   modus = 'iso'; overlay && setOverlay(overlay); // Ebenen gibt es nur in der Karte
   Iso.setzeMitte(x, y); Iso.setzeZoom(stufe); Iso.groesse(vw, vh);
   document.body.classList.add('iso'); $('t-iso').setAttribute('aria-pressed', 'true'); $('legend').hidden = true;
+  if (!selected) $('side').classList.add('zu'); // mehr Platz für die Stadt
   liveRect = null; liveSig = ''; hover = null; dirty = true; renderToolpanel();
 }
 function zuKarte() {
