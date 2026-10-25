@@ -18,7 +18,8 @@ export const PARAM = {
   rad: { basis: 0.38, halbKm: 4.2, form: 2.4, qRef: 1.25, qStrafe: 1.1, max: 0.65 },
   zufriedenKm: 10,        // Zufriedenheit: Wege bis zu dieser Länge zählen
   // Auto: Anteil der Nicht-Rad-Wege mit dem Auto (Rest ÖPNV), kurze Wege eher zu Fuß, Fahrer statt Mitfahrer
-  auto: { anteil: 0.74, fussKm: 1.3, fahrer: 0.8, grenzeSek: 1800 },
+  // abfallKm: Autofahrten verteilen sich weiter als Radwege (eigenes Schwerkraftmodell, gleiche Ziele)
+  auto: { anteil: 0.74, fussKm: 1.3, fahrer: 0.8, grenzeSek: 1800, abfallKm: 12 },
 };
 // Kfz-Fahrten (Fahrzeuge) für einen Weg der Länge L km mit Radanteil pr
 export const autoFahrten = (T, L, pr, p = PARAM.auto) => T * (1 - pr) * p.anteil * (1 - Math.exp(-L / p.fussKm)) * p.fahrer;
@@ -92,7 +93,7 @@ export function rechne(G, faktor, fortschritt, von = 0, bis = G.nZ, strafe = nul
 
   const vol = new Float64Array(G.nE), volA = auto ? new Float64Array(G.nE) : null;
   const zWege = new Float64Array(nZ), zRad = new Float64Array(nZ), zZuf = new Float64Array(nZ), zZufW = new Float64Array(nZ), zRadIn = new Float64Array(nZ);
-  const maxD2 = (P.maxLuftKm * 1000) ** 2, dKm = new Float64Array(nZ), g = new Float64Array(nZ), prD = new Float32Array(nZ);
+  const maxD2 = (P.maxLuftKm * 1000) ** 2, dKm = new Float64Array(nZ), g = new Float64Array(nZ), gA = new Float64Array(nZ), prD = new Float32Array(nZ);
   let summeWege = 0, summeRad = 0, summeRadKm = 0, summeAuto = 0, summeAutoKm = 0;
 
   for (let o = von; o < bis; o++) {
@@ -100,12 +101,13 @@ export function rechne(G, faktor, fortschritt, von = 0, bis = G.nZ, strafe = nul
     const T = G.ew[o] * P.wegeJeEw;
     if (T < 0.5) continue;
     // Schwerkraft: Anteile je Ziel
-    let den = 0;
+    let den = 0, denA = 0;
     for (let d = 0; d < nZ; d++) {
-      g[d] = 0; if (d === o || W[d] <= 0 || (maske && !maske[d])) continue;
+      g[d] = 0; gA[d] = 0; if (d === o || W[d] <= 0 || (maske && !maske[d])) continue;
       const dx = zx[d] - zx[o], dy = zy[d] - zy[o], d2 = dx * dx + dy * dy;
       if (d2 > maxD2) continue;
       dKm[d] = Math.sqrt(d2) / 1000; g[d] = W[d] * Math.exp(-dKm[d] / P.abfallKm); den += g[d];
+      gA[d] = W[d] * Math.exp(-dKm[d] / P.auto.abfallKm); denA += gA[d];
     }
     if (den <= 0) continue;
     zWege[o] = T; summeWege += T;
@@ -133,8 +135,8 @@ export function rechne(G, faktor, fortschritt, von = 0, bis = G.nZ, strafe = nul
       for (let i = 0; i < BA.n; i++) {
         const u = BA.order[i];
         for (let d = zHead[u]; d >= 0; d = zNext[d]) {
-          if (!g[d]) continue;
-          const L = (BA.lenTo[u] + G.zan[o] + G.zan[d]) / 1000, f = autoFahrten(T * g[d] / den, L, prD[d]);
+          if (!gA[d]) continue;
+          const L = (BA.lenTo[u] + G.zan[o] + G.zan[d]) / 1000, f = autoFahrten(T * gA[d] / denA, L, prD[d]);
           BA.load[u] += f; summeAuto += f; summeAutoKm += f * L;
         }
       }

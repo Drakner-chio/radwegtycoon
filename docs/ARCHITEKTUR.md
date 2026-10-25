@@ -127,6 +127,7 @@ geschätzt ist.
   Kürzeste-Wege-Baum. Zufriedenheit je Zelle: wie direkt und stressarm die Ziele bis 10 km erreichbar sind.
   Wege innerhalb einer Zelle sind nicht modelliert. Alle Werte: `PARAM`.
 - Autoverkehr (gleicher Durchlauf, zweiter Dijkstra je Startzelle auf Fahrzeit in Sekunden):
+  Ziele der Autofahrten nach eigenem Schwerkraftmodell mit exp(−d / 12 km) (Autofahrten sind länger);
   Kfz-Fahrten je Ziel = Wege × (1 − Radanteil) × 0,74 (Auto statt ÖPNV) × (1 − exp(−L / 1,3 km)) (kurze Wege
   zu Fuß) × 0,8 (Fahrer statt Mitfahrer); Suche bis 30 min. Fahrzeit = Länge / (Tempolimit × Reiseanteil je
   Klasse), Einbahnstraßen nur vorwärts, Fahrradstraße und Anliegerstraßen × 4, Ampel +12 s, Kreisel +5 s
