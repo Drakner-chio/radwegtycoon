@@ -1,6 +1,7 @@
 // Radweg Tycoon – Kachel-Viewer: Kamera, Detailstufen, Raster-Cache, Auswahl, Overlays.
 import { TileStore, isRoad } from './tiles.js';
 import { Spiel, AUSBAU, gesamt, wendeAn, strassenzug } from './game.js';
+import { Verkehr } from './verkehr.js';
 import { Painter, buildPatterns, hashStr, stroke, offsetLine, bikeValues, condColor, riskColor, drawCrossSection, clamp } from './render.js';
 
 const $ = id => document.getElementById(id);
@@ -22,7 +23,7 @@ const params = new URLSearchParams(location.search);
 const region = params.get('region') || 'lippe';
 const base = params.get('karte') || `daten/${region}/karte/`;
 
-let man, store, spiel;
+let man, store, spiel, verkehr = null;
 const view = $('view'), vctx = view.getContext('2d'), mapwin = $('mapwin');
 let dpr = 1, vw = 0, vh = 0;
 const cam = { x: 0, y: 0, z: 0.05 };
@@ -45,6 +46,7 @@ async function start() {
   store.patchFor = id => spiel.patchFor(id);
   spiel.onChange = renderSpiel;
   setupSpiel();
+  setupVerkehr();
   $('region').textContent = man.name;
   $('stand').textContent = man.osm_stand ? ' · OSM-Stand ' + new Date(man.osm_stand).toLocaleDateString('de-DE') : '';
   renderStats();
@@ -225,12 +227,70 @@ function routeKanten(n) {
   for (const t of store.cache.values()) if (t && t.lod === 0) for (const r of t.roads) if (r.m.routes && r.m.routes.includes(n) && !out.has(r.id)) out.set(r.id, r);
   return [...out.values()];
 }
+/* ----------------------------- Verkehr ----------------------------- */
+const VK_KL = [[1, '#a9d3f0', 1.5], [20, '#5aa9e6', 2.5], [100, '#2f6fd6', 4], [300, '#6a3fd0', 6], [1000, '#c0207a', 9]];
+const vkKlasse = v => { let k = -1; for (let i = 0; i < VK_KL.length; i++) if (v >= VK_KL[i][0]) k = i; return k; };
+function drawVerkehr(top) {
+  if (!verkehr || !verkehr.erg) return;
+  const E = verkehr.erg.vol, wpx = 1 / cam.z;
+  const vx0 = cam.x, vy0 = cam.y, vx1 = cam.x + vw / cam.z, vy1 = cam.y + vh / cam.z;
+  vctx.lineCap = 'round'; vctx.lineJoin = 'round';
+  const paths = VK_KL.map(() => new Path2D());
+  if (top >= 2) {
+    for (const t of loadedTiles(0)) for (const r of t.roads) {
+      if (!r.own || r.bb[2] < vx0 || r.bb[0] > vx1 || r.bb[3] < vy0 || r.bb[1] > vy1) continue;
+      const e = verkehr.idx.get(r.id); if (e === undefined) continue;
+      const k = vkKlasse(E[e]); if (k < 0) continue;
+      const P = r.P, p = paths[k]; p.moveTo(P[0][0], P[0][1]); for (let i = 1; i < P.length; i++) p.lineTo(P[i][0], P[i][1]);
+    }
+  } else {
+    const min = cam.z < .02 ? 3 : cam.z < .06 ? 2 : 1, { a, b, kx, ky } = verkehr;
+    for (let e = 0; e < verkehr.nE; e++) {
+      const k = vkKlasse(E[e]); if (k < min) continue;
+      const x0 = kx[a[e]], y0 = ky[a[e]], x1 = kx[b[e]], y1 = ky[b[e]];
+      if (Math.max(x0, x1) < vx0 || Math.min(x0, x1) > vx1 || Math.max(y0, y1) < vy0 || Math.min(y0, y1) > vy1) continue;
+      paths[k].moveTo(x0, y0); paths[k].lineTo(x1, y1);
+    }
+  }
+  paths.forEach((p, k) => { vctx.lineWidth = VK_KL[k][2] * wpx; vctx.strokeStyle = VK_KL[k][1]; vctx.stroke(p); });
+}
+function drawZufrieden() {
+  if (!verkehr || !verkehr.erg) return;
+  const Z = verkehr.Z, h = verkehr.zelle / 2, e = verkehr.erg;
+  for (let z = 0; z < verkehr.nZ; z++) {
+    if (Z.ew[z] < 10 || !e.zWege[z]) continue;
+    vctx.fillStyle = condColor(e.zZuf[z]); vctx.globalAlpha = Math.min(.5, .18 + Z.ew[z] / 1200);
+    vctx.fillRect(Z.x[z] - h, Z.y[z] - h, 2 * h, 2 * h);
+  }
+  vctx.globalAlpha = 1;
+}
+let vkT = 0;
+function verkehrNeu() { if (!verkehr || !verkehr.erg) return; clearTimeout(vkT); vkT = setTimeout(() => verkehr.rechnen(), 300); }
+function setupVerkehr() {
+  if (!man.netz) { $('verkehr').innerHTML = '<div class="note">Für diese Karte gibt es noch kein Verkehrsnetz. Pipeline neu laufen lassen (Schritt „netz“).</div>'; return; }
+  verkehr = new Verkehr(base, man, id => spiel.patchFor(id));
+  verkehr.onStatus = t => { $('vk-status').textContent = t; };
+  verkehr.onErgebnis = (erg, vorher) => { renderVerkehr(erg, vorher); ortAktuell = null; updateSurvey(true); if (overlay === 'verkehr' || overlay === 'zuf') dirty = true; if (selected) inspect(selected); };
+  $('vk-status').textContent = 'Verkehrsnetz wird geladen …';
+  verkehr.laden().then(() => verkehr.rechnen()).catch(e => { $('vk-status').textContent = 'Verkehr: ' + e.message; });
+}
+const pkt = v => (v >= 0 ? '+' : '−') + fmt(Math.abs(v), 1);
+function renderVerkehr(e, v) {
+  const d = v ? ` <span class="${e.anteil >= v.anteil ? 'up' : 'down'}">${pkt((e.anteil - v.anteil) * 100)}</span>` : '';
+  const dz = v ? ` <span class="${e.zufrieden >= v.zufrieden ? 'up' : 'down'}">${pkt(e.zufrieden - v.zufrieden)}</span>` : '';
+  $('verkehr').innerHTML = `<dl class="kv"><dt>Radanteil</dt><dd>${fmt(e.anteil * 100, 1)} %${d}</dd><dt>Radfahrten am Tag</dt><dd>${fmt(e.rad)}</dd><dt>Rad-km am Tag</dt><dd>${fmt(e.radKm)}</dd><dt>Zufriedenheit</dt><dd>${fmt(e.zufrieden, 1)}${dz}</dd><dt>Einwohner (geschätzt)</dt><dd>${fmt(verkehr.ewSumme)}</dd></dl>`;
+  $('vk-status').textContent = `berechnet in ${fmt(e.ms / 1000, 1)} s · Werte sind Modellschätzungen`;
+  renderSpiel();
+}
+
 function drawOverlay(top) {
   const lod = top >= 2 ? 0 : 1;
   vctx.fillStyle = 'rgba(12,20,16,.45)'; vctx.fillRect(cam.x, cam.y, vw / cam.z, vh / cam.z);
   vctx.lineCap = 'round'; vctx.lineJoin = 'round';
   const minW = 2.5 / cam.z;
   if (overlay === 'route') return drawRoutes(lod);
+  if (overlay === 'verkehr') return drawVerkehr(top);
+  if (overlay === 'zuf') return drawZufrieden();
   for (const t of loadedTiles(lod)) for (const r of t.roads) {
     if (lod === 0 && !r.own) continue;
     const m = r.m; let col = null;
@@ -332,7 +392,8 @@ function inspect(r) {
   if (ch.length) h += `<div class="chips">${ch.map(c => `<span class="chip ${c[1]}">${esc(c[0])}</span>`).join('')}</div>`;
   if (m.routes) h += `<div class="chips">${m.routes.map(n => `<button class="chip route${routeSel === n ? ' on' : ''}" data-route="${esc(n)}" title="Route auf der Karte hervorheben"><i style="background:${routeColor(n)}"></i>${esc(n)}</button>`).join('')}</div>`;
   if (routeSel && m.routes && m.routes.includes(routeSel)) { const rk = routeKanten(routeSel); h += `<button class="bev bau-btn" data-route-mark="1"><span>Route „${esc(routeSel)}“ markieren</span><b>${rk.length} Abschn.</b></button><div class="note">Markiert alle geladenen Abschnitte (${fmt(rk.reduce((a, x) => a + x.len, 0) / 1000, 1)} km). Mehr laden: herauszoomen bis „Ort“.</div>`; }
-  if (bv.use) h += `<dl class="kv"><dt>Risiko fürs Rad</dt><dd>${Math.round(bv.risk * 100)} / 100</dd><dt>Fahrkomfort</dt><dd>${Math.round(bv.comfort * 100)} %</dd></dl>`;
+  const vol = verkehr ? verkehr.volumen(r.id) : null;
+  if (bv.use || vol) h += `<dl class="kv">${bv.use ? `<dt>Risiko fürs Rad</dt><dd>${Math.round(bv.risk * 100)} / 100</dd><dt>Fahrkomfort</dt><dd>${Math.round(bv.comfort * 100)} %</dd>` : ''}${vol !== null ? `<dt>Radverkehr (Modell)</dt><dd>${fmt(vol)} / Tag</dd>` : ''}</dl>`;
   if (est.size) h += `<div class="est">Geschätzt, weil in OSM nicht eingetragen: ${[...est].map(e => EST[e] || e).join(', ')}</div>`;
   const skip = new Set(['name', 'ref', 'est', 'routes']);
   h += `<details class="raw"><summary>Spielmodell (alle Felder)</summary><dl class="kv">${Object.entries(m).filter(([k]) => !skip.has(k)).map(([k, v]) => `<dt>${k}</dt><dd>${esc(Array.isArray(v) ? v.join(', ') : v)}</dd>`).join('')}</dl></details>`;
@@ -370,14 +431,20 @@ function baue(id) {
   nachBau(`${a.name}${e.name ? ' · ' + e.name : ''}: ${e.kanten.length} Abschnitt${e.kanten.length > 1 ? 'e' : ''} für ${eur(e.kosten)}`);
 }
 function nachBau(msg) {
-  wendeAn(store, spiel); chunks.clear(); dirty = true; updateSurvey(true);
+  wendeAn(store, spiel); chunks.clear(); dirty = true; updateSurvey(true); verkehrNeu();
   if (selected) inspect(selected);
   if (msg) { $('bau-msg').textContent = msg; }
 }
 function renderSpiel() {
   const b = spiel.bilanz();
   $('kasse').textContent = eur(spiel.s.budget);
-  $('bilanz').innerHTML = `<dl class="kv"><dt>Aufträge</dt><dd>${b.auftraege}</dd><dt>Ausgebaut</dt><dd>${fmt(b.km, 1)} km</dd><dt>Risiko gesenkt</dt><dd>${fmt(b.risikoKm, 1)} km·Pkt</dd><dt>Komfort gewonnen</dt><dd>${fmt(b.komfortKm, 1)} km·Pkt</dd></dl>`;
+  $('jahr').textContent = 'Jahr ' + spiel.s.jahr;
+  const erg = verkehr && verkehr.erg;
+  $('jahr-ende').disabled = !erg || verkehr.laeuft;
+  $('jahr-ende').textContent = erg ? `Jahr abschließen (+${eur(Spiel.einnahmen(erg))})` : 'Jahr abschließen';
+  const J = spiel.s.jahre || [];
+  $('jahre').innerHTML = J.length ? `<table class="jt"><tr><th>Jahr</th><th>Rad</th><th>Zufr.</th><th>Einn.</th></tr>${J.slice(-5).map(j => `<tr><td>${j.jahr}</td><td>${fmt(j.anteil * 100, 1)} %</td><td>${fmt(j.zufrieden, 0)}</td><td>${fmt(j.einnahmen / 1e6, 2)} Mio</td></tr>`).join('')}</table>` : '';
+  $('bilanz').innerHTML = `<dl class="kv"><dt>Aufträge dieses Jahr</dt><dd>${b.auftraege}</dd><dt>Ausgebaut</dt><dd>${fmt(b.km, 1)} km</dd><dt>Risiko gesenkt</dt><dd>${fmt(b.risikoKm, 1)} km·Pkt</dd><dt>Komfort gewonnen</dt><dd>${fmt(b.komfortKm, 1)} km·Pkt</dd></dl>`;
   $('undo').disabled = !spiel.s.log.length;
 }
 function setupSpiel() {
@@ -389,6 +456,7 @@ function setupSpiel() {
   $('legend').addEventListener('click', e => { const rt = e.target.closest('[data-route]'); if (rt) waehleRoute(rt.dataset.route); });
   $('inspect').addEventListener('change', e => { if (e.target.id === 'zug') { zugModus = e.target.checked; if (selected) inspect(selected); dirty = true; } });
   $('undo').onclick = () => { const e = spiel.rueckgaengig(); if (e) nachBau('Rückgängig: ' + (AUSBAU.find(a => a.id === e.a)?.name || '') + ' (' + eur(e.kosten) + ' zurück)'); };
+  $('jahr-ende').onclick = () => { if (!verkehr || !verkehr.erg || verkehr.laeuft) return; const ein = spiel.jahrAbschliessen(verkehr.erg); $('bau-msg').textContent = `Jahr ${spiel.s.jahr - 1} abgeschlossen: ${eur(ein)} Einnahmen.`; renderSpiel(); };
   $('neu').onclick = () => { if (!$('neu').dataset.sicher) { $('neu').dataset.sicher = 1; $('neu').textContent = 'Wirklich? Nochmal klicken'; setTimeout(() => { delete $('neu').dataset.sicher; $('neu').textContent = 'Neues Spiel'; }, 3000); return; } spiel.neu(); nachBau('Neues Spiel gestartet.'); };
   renderSpiel();
 }
@@ -450,11 +518,13 @@ function updateSurvey(force) {
     return;
   }
   const { st, soll, da } = ortStatistik(o);
-  const sig = o.name + o.e + ':' + da + ':' + spiel.s.log.length;
+  const vk = verkehr ? verkehr.imKreis(o.x, o.y, o.R) : null;
+  const sig = o.name + o.e + ':' + da + ':' + spiel.s.log.length + ':' + (verkehr && verkehr.erg ? verkehr.erg.t : 0);
   if (!force && sig === ortAktuell) return; ortAktuell = sig;
   $('survey-ort').textContent = o.name;
   const hinweis = da < soll ? `<div class="note">Lade Ortsdaten … ${da}/${soll} Kacheln</div>` : `<div class="note">Umkreis ${fmt(o.R / 1000, 1)} km um den Ortsmittelpunkt, Ausbauten eingerechnet.</div>`;
-  $('survey').innerHTML = surveyKopf(o.name, st, hinweis) + surveyBars(st);
+  const vkHtml = vk && vk.wege ? `<dl class="kv"><dt>Radanteil (Modell)</dt><dd>${fmt(vk.anteil * 100, 1)} %</dd><dt>Zufriedenheit</dt><dd>${fmt(vk.zufrieden, 1)}</dd><dt>Einwohner (geschätzt)</dt><dd>${fmt(vk.ew)}</dd></dl>` : '';
+  $('survey').innerHTML = surveyKopf(o.name, st, hinweis) + vkHtml + surveyBars(st);
 }
 
 /* ----------------------------- Panels ----------------------------- */
@@ -495,7 +565,9 @@ function setOverlay(o) {
   if (overlay === 'risk') lg.innerHTML = `<div class="lbl">Risiko für Radfahrende</div>${grad}<div class="ends"><span>sicher</span><span>gefährlich</span></div><div class="keys"><i style="background:#7e8279"></i><span>Radweg daneben benutzen</span></div>`;
   if (overlay === 'net') lg.innerHTML = '<div class="lbl">Radnetz</div><div class="keys"><i style="background:#e0563a"></i><span>Radweg / Fahrradstraße</span><i style="background:#f08a3a"></i><span>Hochbord-Radweg</span><i style="background:#f2c230"></i><span>Rad-/Schutzstreifen</span><i style="background:#9cc23e"></i><span>Tempo ≤ 30, Mischverkehr</span><i style="background:#9a9fa6"></i><span>Tempo 50+, Mischverkehr</span><i style="background:#7e8279"></i><span>Radweg daneben</span><i style="background:#c7b287"></i><span>Feld- und Waldweg</span><i style="background:rgba(31,90,166,.55);height:8px"></i><span>Ausgeschilderte Radroute</span></div>';
   if (overlay === 'route') { routeSig = ''; lg.innerHTML = ''; }
-  if (overlay && overlay !== 'route' && levelIndex() < 2) lg.innerHTML += '<div class="hint">Weit herausgezoomt: nur Haupt- und Sammelstraßen.</div>';
+  if (overlay === 'verkehr') lg.innerHTML = `<div class="lbl">Radfahrten pro Tag (Modell)</div><div class="keys">${VK_KL.map((k, i) => `<i style="background:${k[1]};height:${Math.max(3, k[2])}px"></i><span>${i < VK_KL.length - 1 ? `${k[0]}–${VK_KL[i + 1][0]}` : `ab ${k[0]}`}</span>`).join('')}</div><div class="hint">Wege zwischen Wohnorten und Zielen, umgelegt auf die angenehmsten Radrouten.</div>`;
+  if (overlay === 'zuf') lg.innerHTML = '<div class="lbl">Zufriedenheit mit dem Radnetz</div><div class="bar" style="background:linear-gradient(90deg,#d8452f,#e2c43a,#3fae4a)"></div><div class="ends"><span>unzufrieden</span><span>zufrieden</span></div><div class="hint">Je 500-m-Zelle: wie direkt und stressfrei die Radwege zu den Zielen bis 10 km sind.</div>';
+  if (overlay && !['route', 'verkehr', 'zuf'].includes(overlay) && levelIndex() < 2) lg.innerHTML += '<div class="hint">Weit herausgezoomt: nur Haupt- und Sammelstraßen.</div>';
 }
 
 /* ----------------------------- Eingabe ----------------------------- */
@@ -546,7 +618,7 @@ $('t-names').onclick = () => { showNames = !showNames; $('t-names').setAttribute
 window.addEventListener('keydown', e => {
   if (e.target.closest && e.target.closest('input')) return;
   const k = e.key.toLowerCase();
-  if (k === 'z') setOverlay('cond'); if (k === 's') setOverlay('risk'); if (k === 'r') setOverlay('net'); if (k === 't') setOverlay('route'); if (k === 'n') $('t-names').click();
+  if (k === 'z') setOverlay('cond'); if (k === 's') setOverlay('risk'); if (k === 'r') setOverlay('net'); if (k === 't') setOverlay('route'); if (k === 'v') setOverlay('verkehr'); if (k === 'f') setOverlay('zuf'); if (k === 'n') $('t-names').click();
   if (k === '+' || k === '=') $('z-in').click(); if (k === '-') $('z-out').click();
   const pan = 120 / cam.z;
   if (k === 'arrowleft') cam.x -= pan; if (k === 'arrowright') cam.x += pan; if (k === 'arrowup') cam.y -= pan; if (k === 'arrowdown') cam.y += pan;

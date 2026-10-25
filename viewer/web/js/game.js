@@ -51,6 +51,7 @@ export class Spiel {
     this.key = 'rtc-spiel-' + slug;
     this.s = { budget: START_BUDGET, kanten: {}, log: [] };
     try { const v = JSON.parse(localStorage.getItem(this.key)); if (v && v.kanten) this.s = v; } catch (e) {}
+    if (!this.s.jahr) { this.s.jahr = 1; this.s.jahre = []; }
     this.onChange = () => {};
   }
   speichern() { try { localStorage.setItem(this.key, JSON.stringify(this.s)); } catch (e) {} this.onChange(); }
@@ -81,7 +82,18 @@ export class Spiel {
     this.speichern();
     return e;
   }
-  neu() { this.s = { budget: START_BUDGET, kanten: {}, log: [] }; this.speichern(); }
+  neu() { this.s = { budget: START_BUDGET, kanten: {}, log: [], jahr: 1, jahre: [] }; this.speichern(); }
+
+  // Jahresabschluss: Einnahmen aus Grundbetrag, Zufriedenheit und Radanteil (Platzhalter, später eichen).
+  // Danach lassen sich die Aufträge des Jahres nicht mehr rückgängig machen.
+  static einnahmen(erg) { return Math.round((400_000 + 12_000 * erg.zufrieden + 2_000_000 * erg.anteil) / 1000) * 1000; }
+  jahrAbschliessen(erg) {
+    const ein = Spiel.einnahmen(erg);
+    this.s.jahre.push({ jahr: this.s.jahr, anteil: erg.anteil, zufrieden: erg.zufrieden, radKm: erg.radKm, ausgaben: this.s.log.reduce((a, e) => a + e.kosten, 0), einnahmen: ein });
+    this.s.budget += ein; this.s.jahr++; this.s.log = [];
+    this.speichern();
+    return ein;
+  }
 
   // Wirkung: längengewichtete Risiko-Senkung und Komfortgewinn über alle ausgebauten Kanten
   bilanz() {

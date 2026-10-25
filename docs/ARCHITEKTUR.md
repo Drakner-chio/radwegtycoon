@@ -72,7 +72,8 @@ geschätzt ist.
 
 1. ~~Kachel-Viewer~~ erledigt: `viewer/` (siehe unten).
 2. Spiel auf dem Graphen: ~~Bauen pro Kante/Straßenzug~~ (Stufe 1 erledigt, `viewer/web/js/game.js`);
-   offen: Verkehrssimulation mit Vorfahrt, Ampeln, Kreisverkehren, Nachfrage/Zufriedenheit, Jahresbudget.
+   Verkehr Ebene 1 (Nachfrage, Radrouten, Radanteil, Zufriedenheit, Jahresbudget) erledigt, siehe unten;
+   offen: Ebene 2 (sichtbare Autos/Räder mit Vorfahrt, Ampeln, Kreisverkehren), Autoverkehr im Modell, Eichung.
 3. Grobe Ebene: Verkehrsströme zwischen Orten, geeicht mit Straßenverkehrszählung und Pendlerstatistik.
 4. Weitere Daten: Zensus-Raster (Einwohner), Unfallatlas (Radunfälle), Zählstellen.
 
@@ -107,3 +108,22 @@ geschätzt ist.
   hervorgehobene Route komplett markieren (alle geladenen Detailkacheln) und in einem Auftrag ausbauen.
   Dafür enthält Stufe 1 seit Format 2 alle Routenkanten.
 - „Zum Radweg ausbauen“ macht aus Feld-/Wald-/Fußwegen einen roten Asphalt-Radweg (`cls` wird `rad`).
+
+## Verkehr, Ebene 1 (`pipeline/rtc/netz.py`, `viewer/web/js/verkehr*.js`)
+
+- Pipeline-Schritt `netz` (läuft in `bauen`/`alles` mit) liest die Detailkacheln und schreibt `netz.json.gz`:
+  Graph (Knoten, Kanten mit Rad-relevanten Modellfeldern, spaltenweise) und 500-m-Zellen mit geschätzten
+  Einwohnern (Wohngebäude: Grundfläche × Geschosse × 0,75 / 45 m²), Arbeitsplätzen (Gewerbegebäude) und
+  Zielen aus POIs (Schule, Einkauf, Versorgung, Freizeit, Bahnhof). Jede Zelle hängt am nächsten
+  fürs Rad nutzbaren Knoten.
+- Browser: `verkehr.js` berechnet je Kante einen Faktor „gefühlte Meter je Meter“ aus `bikeValues()`
+  (mit Ausbauten): `1 + 2,2 · Risiko + 1,5 · (1 − Komfort)`; Fußweg ohne Radfreigabe 3,5 (schieben),
+  Fahrbahn mit Radweg daneben 4, Autobahn/Treppe gesperrt. Die Startzellen werden auf mehrere Web Worker
+  verteilt (`verkehr-worker.js`), das Modell selbst steht in `verkehr-modell.js` (auch in Node lauffähig).
+- Modell je Startzelle: Wege = Einwohner × 2,2, Verteilung auf Ziele per Schwerkraft (Luftlinie,
+  exp(−d / 6 km)); Dijkstra auf gefühlten Metern bis 16 km; Radanteil
+  `0,38 / (1 + (L / 4,2 km)^2,4) · exp(−1,1 · (q − 1,25))` mit q = gefühlt / echt; Umlegen auf den
+  Kürzeste-Wege-Baum. Zufriedenheit je Zelle: wie direkt und stressarm die Ziele bis 10 km erreichbar sind.
+  Wege innerhalb einer Zelle und der Autoverkehr sind noch nicht modelliert. Alle Werte: `PARAM`.
+- Spielschleife: Ausbau → Neuberechnung (Anzeige der Änderung) → „Jahr abschließen“ bringt Einnahmen
+  `400.000 € + 12.000 € × Zufriedenheit + 2 Mio. € × Radanteil` (Platzhalter bis zur Eichung).

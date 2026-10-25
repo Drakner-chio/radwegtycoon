@@ -6,7 +6,8 @@ Doku, UI, Commit-Messages): Deutsch.
 
 ## Stand
 - `pipeline/`: OSM → Kacheln, siehe `docs/ARCHITEKTUR.md` und `docs/KACHELFORMAT.md`.
-- `viewer/`: Kartenviewer (statisch, nginx), lädt `daten/<slug>/karte/`; Aufruf `?region=<slug>`.
+- `viewer/`: Kartenviewer + Spiel (statisch, nginx), lädt `daten/<slug>/karte/`; Aufruf `?region=<slug>`.
+  Bauen: `js/game.js`; Verkehr Ebene 1: `pipeline/rtc/netz.py` → `netz.json.gz`, `js/verkehr*.js`.
 - `prototypen/`: Testdorf-Spiel (Feldraster) und erste Ortsvorschau (eine HTML-Datei mit
   eingebetteten Daten). Beide sind Vorstufen; das eigentliche Spiel baut auf dem Viewer auf.
 

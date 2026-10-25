@@ -187,3 +187,22 @@ def test_strip_mode_gives_identical_tiles(tmp_path):
     for lod, keys in m1["tiles"].items():
         for ix, iy in keys:
             assert tiles_one(tmp_path / "eins", lod, ix, iy) == tiles_one(tmp_path / "streifen", lod, ix, iy)
+
+
+def test_netz(built):
+    import gzip as _gz
+    from rtc.netz import bauen_netz
+    root, _ = built
+    info = bauen_netz(root)
+    netz = json.loads(_gz.decompress((root / "netz.json.gz").read_bytes()))
+    K = netz["kanten"]
+    assert info["kanten"] == len(K["id"]) == len(owned_edges(root))
+    n = len(netz["knoten"]["x"])
+    assert all(0 <= a < n and 0 <= b < n for a, b in zip(K["a"], K["b"]))
+    assert len(set(K["id"])) == len(K["id"])
+    man = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+    assert man["netz"]["datei"] == "netz.json.gz"
+    # deterministisch
+    eins = (root / "netz.json.gz").read_bytes()
+    bauen_netz(root)
+    assert (root / "netz.json.gz").read_bytes() == eins

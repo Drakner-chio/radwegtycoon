@@ -1,0 +1,94 @@
+// Radweg Tycoon – Verkehr Ebene 1 im Browser: Netz laden, Kantenfaktoren aus dem Spielmodell
+// (mit Ausbauten) berechnen, Startzellen auf mehrere Worker verteilen, Ergebnisse zusammenführen.
+import { ladeJsonGz } from './verkehr-modell.js';
+import { bikeValues } from './render.js';
+
+const u = v => v === -1 ? undefined : v;
+
+// Gefühlte Meter je Meter fürs Rad. Infinity = nicht befahrbar.
+export function radFaktor(m) {
+  if (m.cls === 'auto' || m.cls === 'treppe') return Infinity;
+  const bv = bikeValues(m);
+  if (!bv.allowed) return m.cls === 'fuss' ? 3.5 : Infinity; // Fußweg: schieben
+  if (bv.sidepath) return 4;                                   // Fahrbahn verboten, Radweg daneben nehmen
+  return 1 + 2.2 * bv.risk + 1.5 * (1 - bv.comfort);
+}
+
+export class Verkehr {
+  constructor(base, man, patchFor) {
+    this.url = new URL(base + (man.netz && man.netz.datei || 'netz.json.gz'), location.href).href;
+    this.patchFor = patchFor;
+    this.ok = !!man.netz;
+    this.erg = null; this.vorher = null; this.laeuft = false; this.wieder = false;
+    this.onStatus = () => {}; this.onErgebnis = () => {};
+  }
+  async laden() {
+    const n = this.netz = await ladeJsonGz(this.url);
+    const K = n.kanten, nE = K.id.length;
+    this.nE = nE; this.idx = new Map(); for (let e = 0; e < nE; e++) this.idx.set(K.id[e], e);
+    this.kx = Float32Array.from(n.knoten.x); this.ky = Float32Array.from(n.knoten.y);
+    this.a = Int32Array.from(K.a); this.b = Int32Array.from(K.b); this.len = Float32Array.from(K.len);
+    this.Z = n.zonen; this.nZ = n.zonen.x.length; this.zelle = n.zelle_m;
+    this.ewSumme = this.Z.ew.reduce((s, v) => s + v, 0);
+    const anz = Math.max(1, Math.min(8, (navigator.hardwareConcurrency || 4) - 1));
+    this.worker = [];
+    await Promise.all(Array.from({ length: anz }, () => new Promise((ok, fail) => {
+      const w = new Worker(new URL('./verkehr-worker.js', import.meta.url), { type: 'module' });
+      w.onmessage = ev => { if (ev.data.typ === 'bereit') { w.onmessage = null; ok(); } else if (ev.data.typ === 'fehler') fail(new Error(ev.data.text)); };
+      w.onerror = e => fail(e); w.postMessage({ typ: 'init', url: this.url }); this.worker.push(w);
+    })));
+  }
+  modell(e) {
+    const n = this.netz, K = n.kanten;
+    const m = { cls: n.klassen[K.cls[e]], ms: u(K.ms[e]), bike: u(K.bike[e]), car: u(K.car[e]), fac_l: u(K.fac_l[e]), fac_r: u(K.fac_r[e]), frs: u(K.frs[e]),
+      surf: n.belaege[K.surf[e]], cond: u(K.cond[e]), tsurf: n.belaege[K.tsurf[e]], tcond: u(K.tcond[e]) };
+    const p = this.patchFor(K.id[e]);
+    return p ? { ...m, ...p } : m;
+  }
+  faktoren() { const f = new Float32Array(this.nE); for (let e = 0; e < this.nE; e++) f[e] = radFaktor(this.modell(e)); return f; }
+
+  // Neu rechnen; während einer laufenden Rechnung wird höchstens eine weitere vorgemerkt
+  async rechnen() {
+    if (this.laeuft) { this.wieder = true; return; }
+    this.laeuft = true; const t0 = performance.now();
+    const f = this.faktoren(), W = this.worker.length;
+    // Zellen reihum verteilen (Lastausgleich: große Städte nicht alle in einem Block)
+    const stueck = Math.max(1, Math.ceil(this.nZ / (W * 6))), auftraege = [];
+    for (let v = 0; v < this.nZ; v += stueck) auftraege.push([v, Math.min(this.nZ, v + stueck)]);
+    const vol = new Float64Array(this.nE), Z = { zWege: new Float32Array(this.nZ), zRad: new Float32Array(this.nZ), zRadIn: new Float32Array(this.nZ), zZuf: new Float32Array(this.nZ), zZufW: new Float32Array(this.nZ) };
+    let wege = 0, rad = 0, radKm = 0, fertig = 0; const gesamt = auftraege.length;
+    await Promise.all(this.worker.map(w => new Promise((ok, fail) => {
+      const naechster = () => {
+        const a = auftraege.shift(); if (!a) { w.onmessage = null; return ok(); }
+        w.onmessage = ev => {
+          const m = ev.data;
+          if (m.typ === 'fehler') return fail(new Error(m.text));
+          if (m.typ !== 'ergebnis') return;
+          const r = m.r; for (let e = 0; e < this.nE; e++) vol[e] += r.vol[e];
+                for (const k of ["zWege", "zRad", "zZuf", "zZufW"]) Z[k].set(r[k].subarray(m.von, m.bis), m.von);
+          wege += r.summeWege; rad += r.summeRad; radKm += r.summeRadKm; fertig++;
+          if (!this._radIn) this._radIn = new Float64Array(this.nZ);
+          for (let z = 0; z < this.nZ; z++) this._radIn[z] += r.zRadIn[z];
+          this.onStatus(`Verkehr wird berechnet … ${Math.round(fertig / gesamt * 100)} %`);
+          naechster();
+        };
+        w.postMessage({ typ: 'rechne', id: a[0], faktor: f, von: a[0], bis: a[1] });
+      };
+      naechster();
+    })));
+    Z.zRadIn = Float32Array.from(this._radIn); this._radIn = null;
+    let zs = 0, zw = 0; for (let z = 0; z < this.nZ; z++) if (Z.zZufW[z] > 0) { zs += Z.zZuf[z] * this.Z.ew[z]; zw += this.Z.ew[z]; }
+    this.vorher = this.erg;
+    this.erg = { vol: Float32Array.from(vol), ...Z, wege, rad, radKm, anteil: wege ? rad / wege : 0, zufrieden: zw ? zs / zw : 0, ms: performance.now() - t0, t: Date.now() };
+    this.laeuft = false;
+    this.onErgebnis(this.erg, this.vorher);
+    if (this.wieder) { this.wieder = false; this.rechnen(); }
+  }
+  volumen(id) { const e = this.idx && this.idx.get(id); return e === undefined || !this.erg ? null : this.erg.vol[e]; }
+  // Kennzahlen für einen Kreis (Ortsansicht)
+  imKreis(x, y, R) {
+    if (!this.erg) return null; let w = 0, r = 0, ew = 0, zs = 0;
+    for (let z = 0; z < this.nZ; z++) { if (Math.hypot(this.Z.x[z] - x, this.Z.y[z] - y) > R) continue; w += this.erg.zWege[z]; r += this.erg.zRad[z]; ew += this.Z.ew[z]; zs += this.erg.zZuf[z] * this.Z.ew[z]; }
+    return { wege: w, rad: r, anteil: w ? r / w : 0, ew, zufrieden: ew ? zs / ew : 0 };
+  }
+}

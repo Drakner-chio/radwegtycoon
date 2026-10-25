@@ -141,7 +141,14 @@ def cmd_bauen(region, data, args):
     stand_f = work / "osm_stand.txt"
     stand = stand_f.read_text(encoding="utf-8").strip() if stand_f.exists() and not args.eingabe else None
     build(region, src, out, poly, stand, jobs=args.jobs)
+    from .netz import bauen_netz
+    bauen_netz(out, jobs=args.jobs)
     return out
+
+
+def cmd_netz(region, data, args):
+    from .netz import bauen_netz
+    bauen_netz(data / region.slug / "karte", jobs=args.jobs)
 
 
 def cmd_vorschau(region, data, args):
@@ -171,7 +178,7 @@ def cmd_info(region, data, args):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="rtc", description="Radweg Tycoon – Kartenpipeline")
-    ap.add_argument("befehl", choices=["alles", "download", "ausschnitt", "bauen", "vorschau", "info"])
+    ap.add_argument("befehl", choices=["alles", "download", "ausschnitt", "bauen", "netz", "vorschau", "info"])
     ap.add_argument("region", help="Regionsdatei, z. B. regionen/lippe.yaml")
     ap.add_argument("--daten", default="/data", help="Arbeitsordner (Standard: /data)")
     ap.add_argument("--eingabe", help="OSM-Datei direkt verwenden (überspringt download/ausschnitt)")
@@ -191,6 +198,8 @@ def main(argv=None):
         cmd_ausschnitt(region, data, args)
     elif args.befehl == "bauen":
         cmd_bauen(region, data, args)
+    elif args.befehl == "netz":
+        cmd_netz(region, data, args)
     elif args.befehl == "vorschau":
         cmd_vorschau(region, data, args)
     elif args.befehl == "info":

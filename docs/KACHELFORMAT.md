@@ -99,3 +99,15 @@ Name, Erstellzeit, OSM-Stand, `bbox_utm`, `bbox_wgs84`, vereinfachtes Gebietspol
 `tile_size_m`, Liste aller Kacheln je Stufe (`tiles`), Größe je Stufe, Ortsliste und `statistik`
 (km nach Klasse, Radinfrastruktur, Belag, Tempo 30, mittlerer Zustand, Gebäude usw.).
 `ampeln` zählt OSM-Ampelknoten; eine Kreuzung hat oft mehrere davon (einen je Zufahrt).
+
+## netz.json.gz (Verkehrsnetz, Format 1)
+
+Wird vom Schritt `netz` aus den Detailkacheln erzeugt; `manifest.json` bekommt einen Eintrag `netz`
+(`datei`, `bytes`, `knoten`, `kanten`, `zonen`) und `statistik.einwohner_geschaetzt`.
+
+- `knoten.x`, `knoten.y`: Weltkoordinaten in m (x = Ost − Ost₀, y = Nord₀ − Nord, wie im Viewer).
+- `kanten`: Spalten gleicher Länge – `id` (Kanten-ID wie in den Kacheln), `a`, `b` (Knotenindex), `len` (m),
+  `cls` und `surf`/`tsurf` als Index in `klassen` bzw. `belaege`, dazu `ms`, `bike`, `car`, `fac_l`, `fac_r`,
+  `frs`, `cond`, `tcond`, `oneway` (−1 = fehlt).
+- `zonen`: Spalten – `x`, `y` (Zellmitte), `knoten`, `anbindung` (m bis zum Knoten), `ew`, `arbeit`,
+  `einkauf`, `schule`, `versorgung`, `freizeit`, `bahnhof`. Zellgröße `zelle_m`.

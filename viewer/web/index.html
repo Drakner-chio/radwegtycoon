@@ -27,6 +27,8 @@
         <button class="bev" data-ov="risk" aria-pressed="false">Sicherheit (S)</button>
         <button class="bev" data-ov="net" aria-pressed="false">Radnetz (R)</button>
         <button class="bev" data-ov="route" aria-pressed="false">Radrouten (T)</button>
+        <button class="bev" data-ov="verkehr" aria-pressed="false">Verkehr (V)</button>
+        <button class="bev" data-ov="zuf" aria-pressed="false">Zufriedenheit (F)</button>
         <button class="bev" id="t-names" aria-pressed="true">Namen (N)</button>
       </div>
       <div class="status"><span id="lvl"></span><span id="busy" hidden>lädt …</span></div>
@@ -37,7 +39,8 @@
     </section>
     <aside class="side">
       <section class="win panel"><h2>Info <span class="lbl" id="insp-kind"></span></h2><div id="inspect"></div></section>
-      <section class="win panel"><h2>Bauamt</h2><div id="bilanz"></div><div class="note" id="bau-msg">Straße anklicken und im Info-Fenster ausbauen.</div><div class="row-btns"><button class="bev" id="undo">Rückgängig</button><button class="bev" id="neu">Neues Spiel</button></div></section>
+      <section class="win panel"><h2>Bauamt <span class="lbl" id="jahr"></span></h2><div id="bilanz"></div><div id="jahre"></div><div class="note" id="bau-msg">Straße anklicken und im Info-Fenster ausbauen.</div><div class="row-btns"><button class="bev" id="jahr-ende">Jahr abschließen</button><button class="bev" id="undo">Rückgängig</button><button class="bev" id="neu">Neues Spiel</button></div></section>
+      <section class="win panel"><h2>Verkehr</h2><div id="verkehr"></div><div class="note" id="vk-status"></div></section>
       <section class="win panel"><h2>Bestandsaufnahme <span class="lbl" id="survey-ort"></span></h2><div id="survey"></div></section>
       <section class="win panel note">Mausrad zoomt, Ziehen verschiebt. Ab Ortsansicht lassen sich Straßen anklicken und ausbauen; der Spielstand bleibt im Browser. Werte, die in OSM fehlen, sind geschätzt und gelb markiert.</section>
     </aside>
