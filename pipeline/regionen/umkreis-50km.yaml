@@ -1,0 +1,12 @@
+# Vorlage: 50 km um einen Mittelpunkt. Zentrum anpassen – oder eine Kopie unter
+# regionen/lokal/ ablegen (dieser Ordner wird nicht ins Repo übernommen).
+name: Umkreis 50 km
+slug: umkreis-50km
+quellen:
+  - https://download.geofabrik.de/europe/germany/nordrhein-westfalen-latest.osm.pbf
+  - https://download.geofabrik.de/europe/germany/niedersachsen-latest.osm.pbf
+gebiet:
+  typ: kreis
+  zentrum: [51.9376, 8.8796]   # lat, lon – Beispiel: Detmold, Kreisstadt von Lippe
+  radius_km: 50
+rand_m: 0

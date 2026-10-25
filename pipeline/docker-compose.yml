@@ -1,0 +1,9 @@
+# Aufruf:  docker compose run --rm pipeline alles regionen/lippe.yaml
+# Den Datenordner unten anpassen (Unraid z. B. /mnt/user/appdata/radwegtycoon).
+services:
+  pipeline:
+    build: .
+    image: radwegtycoon-pipeline
+    volumes:
+      - ${RTC_DATEN:-./daten}:/data
+      - ./regionen:/app/regionen:ro

@@ -1,0 +1,7 @@
+osmium>=4.0,<5
+shapely>=2.0,<3
+pyproj>=3.6
+numpy>=1.26
+pyyaml>=6.0
+pillow>=10.0
+pytest>=8.0

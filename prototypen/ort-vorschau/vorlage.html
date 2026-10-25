@@ -1,0 +1,783 @@
+<title>Ort Kartenvorschau</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;600&family=Silkscreen:wght@400;700&family=VT323&display=swap">
+<style>
+/* Layout: Karte links, Bestandsaufnahme/Inspektor rechts – gleiche Bevel-Optik wie Radweg Tycoon. Ein Erscheinungsbild. */
+:root{
+  --desk:#1f2b26;--desk-2:#16201c;--panel:#e4ddcd;--panel-2:#d1c8b4;--hi:#fffaf0;--lo:#857d6b;--line:#b9b09c;--paper:#efe9dc;
+  --ink:#1c211e;--muted:#5a5f57;--sign:#1f5aa6;--radrot:#b5523b;--ok:#3b8a3f;--warn:#c48a1e;--bad:#b03a2e;
+  --f-display:'Silkscreen','Courier New',monospace;--f-ui:'Pixelify Sans','Trebuchet MS',system-ui,sans-serif;--f-num:'VT323',ui-monospace,monospace;
+  color-scheme:light;
+}
+html,body{height:100%}
+body{margin:0;background:var(--desk);color:var(--ink);font-family:var(--f-ui);font-size:14px;line-height:1.35;box-sizing:border-box;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:12px;overflow:hidden;
+  background-image:radial-gradient(var(--desk-2) 1px,transparent 1px);background-size:6px 6px}
+*,*::before,*::after{box-sizing:inherit}
+[hidden]{display:none!important}
+button{font:inherit;color:inherit}
+a{color:var(--sign)}
+.app{height:100%;display:flex;flex-direction:column;gap:10px;min-height:0}
+.win{background:var(--panel);border:2px solid;border-color:var(--hi) var(--lo) var(--lo) var(--hi);box-shadow:0 0 0 1px #0b100e,3px 3px 0 #0b100e}
+.bev{background:var(--panel);border:2px solid;border-color:var(--hi) var(--lo) var(--lo) var(--hi);cursor:pointer;padding:3px 8px}
+.bev:hover{background:#ece6d8}
+.bev[aria-pressed="true"]{border-color:var(--lo) var(--hi) var(--hi) var(--lo);background:var(--panel-2)}
+button:focus-visible{outline:2px solid var(--sign);outline-offset:1px}
+.lbl{font-family:var(--f-display);font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.topbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 22px;padding:6px 10px}
+.brand{display:flex;align-items:center;gap:8px}
+.brand canvas{width:32px;height:32px;image-rendering:pixelated}
+.brand-name{font-family:var(--f-display);font-weight:700;font-size:15px;letter-spacing:.04em;line-height:1}
+.brand-sub{font-size:12px;color:var(--muted)}
+.facts{display:flex;gap:18px;flex-wrap:wrap}
+.fact{display:flex;flex-direction:column}
+.fact b{font-family:var(--f-num);font-weight:400;font-size:24px;line-height:1;font-variant-numeric:tabular-nums}
+.speeds{display:flex;gap:2px;margin-left:auto}
+.speeds button{min-width:34px;font-family:var(--f-display);font-size:11px;padding:3px 6px}
+.main{flex:1;min-height:0;display:flex;gap:10px}
+.mapwin{flex:1;min-width:0;position:relative;overflow:hidden;background:#101713}
+#view{display:block;width:100%;height:100%;touch-action:none;cursor:grab}
+.maptoggles{position:absolute;top:8px;left:8px;display:flex;gap:4px;flex-wrap:wrap;max-width:calc(100% - 60px)}
+.maptoggles button,.zoom button{font-family:var(--f-display);font-size:10px;letter-spacing:.04em}
+.zoom{position:absolute;right:8px;bottom:30px;display:flex;flex-direction:column;gap:2px}
+.zoom button{width:30px;height:30px;font-size:16px;padding:0}
+.attr{position:absolute;right:0;bottom:0;font-size:11px;background:rgba(239,233,220,.92);padding:2px 6px;border-top-left-radius:2px}
+.legend{position:absolute;left:8px;bottom:8px;padding:6px 8px;font-size:12px;max-width:260px}
+.legend .bar{width:180px;height:8px;margin:4px 0 2px;border:1px solid var(--lo);background:linear-gradient(90deg,#3fae4a,#e2c43a,#d8452f)}
+.legend .ends{display:flex;justify-content:space-between;color:var(--muted);font-size:11px}
+.legend .keys{display:grid;grid-template-columns:auto 1fr;gap:3px 6px;font-size:12px;margin-top:4px}
+.legend .keys i{width:18px;height:6px;align-self:center;display:block}
+.tip{position:absolute;pointer-events:none;padding:5px 8px;max-width:260px;font-size:12px;z-index:5}
+.tip b{font-family:var(--f-display);font-size:10px;letter-spacing:.04em;display:block}
+.loading{position:absolute;inset:0;display:grid;place-items:center;color:#cfe3c6;font-family:var(--f-display);font-size:12px;pointer-events:none}
+.side{width:340px;flex:none;display:flex;flex-direction:column;gap:10px;min-height:0;overflow-y:auto;padding-right:4px}
+.panel{padding:8px 10px}
+.panel h2{font-family:var(--f-display);font-size:11px;letter-spacing:.08em;text-transform:uppercase;margin:0 0 6px;padding-bottom:4px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.insp-title{font-weight:600;font-size:16px;line-height:1.2}
+.insp-sub{color:var(--muted);font-size:12px;margin:2px 0 6px}
+.xs{width:100%;height:100px;display:block;background:var(--paper);border:1px solid var(--line);margin:4px 0 2px}
+.xs-cap{font-size:11px;color:var(--muted);margin-bottom:6px}
+.cond{display:grid;grid-template-columns:1fr auto;gap:0 8px;font-size:13px;margin:6px 0}
+.cond .bar{grid-column:1/-1;height:7px;border:1px solid var(--lo);background:#bfb6a1;margin:2px 0 2px}
+.cond .bar s{display:block;height:100%;text-decoration:none}
+.cond b{font-family:var(--f-num);font-weight:400;font-size:17px}
+.chips{display:flex;flex-wrap:wrap;gap:4px;margin:4px 0 6px}
+.chip{font-size:11px;padding:1px 6px;border:1px solid var(--line);background:var(--paper)}
+.chip.bad{border-color:#d8a49d;background:#f6e3df;color:#7d2a21}
+.chip.warn{border-color:#dcc58f;background:#f6eed8;color:#6d4f0c}
+.chip.good{border-color:#a9cfa5;background:#e4f2e1;color:#25602a}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;font-size:12px;margin:6px 0}
+.kv dt{color:var(--muted)} .kv dd{margin:0;text-align:right;font-family:var(--f-num);font-size:16px;line-height:1.1;word-break:break-word}
+.osm{font-size:12px;margin-top:6px}
+.est{color:var(--warn);font-size:11px}
+.rank{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:3px}
+.rank button{width:100%;display:grid;grid-template-columns:1fr auto;gap:6px;text-align:left;font-size:12px;padding:3px 6px}
+.rank button span{font-family:var(--f-num);font-size:15px;color:var(--muted)}
+.bars{display:flex;flex-direction:column;gap:4px;font-size:12px}
+.bars .row{display:grid;grid-template-columns:118px 1fr auto;gap:6px;align-items:center}
+.bars .row i{display:block;height:8px;background:var(--radrot)}
+.bars .row b{font-family:var(--f-num);font-weight:400;font-size:15px;text-align:right;white-space:nowrap;min-width:52px}
+.note{font-size:12px;color:var(--muted)}
+@media (max-width:860px){
+  html,body{height:auto} body{overflow:auto}
+  .app{height:auto} .main{flex-direction:column}
+  .mapwin{flex:none;height:62vh;min-height:320px}
+  .side{width:auto;overflow:visible;padding-right:0}
+  .brand-sub{display:none} .speeds{margin-left:0}
+}
+</style>
+
+<div class="app">
+  <header class="topbar win">
+    <div class="brand"><canvas id="logo" width="16" height="16" aria-hidden="true"></canvas>
+      <div><div class="brand-name">Radweg Tycoon · <span id="place">Ort</span></div><div class="brand-sub">Kartenvorschau aus echten OpenStreetMap-Daten</div></div></div>
+    <div class="facts" id="facts"></div>
+    <div class="speeds" role="group" aria-label="Verkehr">
+      <button class="bev" data-speed="0" aria-label="Verkehr anhalten">II</button>
+      <button class="bev" data-speed="1" aria-pressed="true">1×</button>
+      <button class="bev" data-speed="3">3×</button>
+    </div>
+  </header>
+  <div class="main">
+    <section class="mapwin win" id="mapwin">
+      <canvas id="view" aria-label="Karte"></canvas>
+      <div class="loading" id="loading">Karte wird gezeichnet …</div>
+      <div class="maptoggles">
+        <button class="bev" data-ov="cond" aria-pressed="false">Zustand (Z)</button>
+        <button class="bev" data-ov="risk" aria-pressed="false">Sicherheit (S)</button>
+        <button class="bev" data-ov="net" aria-pressed="false">Radnetz (R)</button>
+        <button class="bev" id="t-names" aria-pressed="true">Namen (N)</button>
+      </div>
+      <div class="zoom"><button class="bev" id="z-in" aria-label="Hineinzoomen">+</button><button class="bev" id="z-out" aria-label="Herauszoomen">−</button></div>
+      <div class="legend win" id="legend" hidden></div>
+      <div class="tip win" id="tip" hidden></div>
+      <div class="attr">Kartendaten © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap-Mitwirkende</a> (ODbL)</div>
+    </section>
+    <aside class="side">
+      <section class="win panel"><h2>Info <span class="lbl" id="insp-kind"></span></h2><div id="inspect"></div></section>
+      <section class="win panel"><h2>Bestandsaufnahme Rad</h2><div id="survey"></div></section>
+      <section class="win panel"><h2>Größte Baustellen fürs Rad</h2><ol class="rank" id="rank"></ol></section>
+      <section class="win panel note">So wird aus den Daten ein Spiel: Straßentyp, Tempo, Radwege, Gehwege und Belag kommen direkt aus OpenStreetMap. Wo nichts eingetragen ist, schätzt das Spiel (gelb markiert). Der Zustand stammt aus dem Tag <code>smoothness</code> oder wird aus Belag und Straßentyp geschätzt. Der Verkehr ist hier noch zufällig verteilt, nicht aus echten Zählungen.</section>
+    </aside>
+  </div>
+</div>
+
+<script>const DATA=/*DATA*/null;</script>
+<script>
+'use strict';
+(function(){
+const D=DATA,N=D.N,WM=D.W,HM=D.H,TAU=Math.PI*2;
+const clamp=(v,a,b)=>v<a?a:v>b?b:v;
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+const hash=n=>{let x=(n|0)^0x9e3779b9;x=Math.imul(x^(x>>>16),0x85ebca6b);x=Math.imul(x^(x>>>13),0xc2b2ae35);return((x^(x>>>16))>>>0)/4294967296};
+const rnd=mulberry32(Date.now()&0xffffff);
+const $=id=>document.getElementById(id);
+const fmt=(v,d=0)=>v.toLocaleString('de-DE',{minimumFractionDigits:d,maximumFractionDigits:d});
+
+/* =====================================================================
+   OSM → Spielmodell
+   ===================================================================== */
+const CLS={L:'Hauptverkehrsstraße',dorf:'Sammelstraße',wohn:'Wohnstraße',spiel:'Verkehrsberuhigter Bereich',zufahrt:'Zufahrt',feld:'Wirtschafts-/Waldweg',rad:'Radweg (gemeinsam mit Fußgängern)',weg:'Weg',fuss:'Fußweg',treppe:'Treppe'};
+const FAC=['keine','Schutzstreifen','Radfahrstreifen','Hochbord-Radweg'];
+const SURF={asphalt:'Asphalt',paving_stones:'Betonpflaster',concrete:'Beton',sett:'Kopfsteinpflaster',cobblestone:'Kopfsteinpflaster',unhewn_cobblestone:'Feldsteinpflaster',compacted:'Wassergeb. Decke',fine_gravel:'Feinsplitt',gravel:'Schotter',ground:'Erdweg',dirt:'Erdweg',earth:'Erdweg',sand:'Sand',grass:'Gras',woodchips:'Holzhäcksel',paved:'befestigt',unpaved:'unbefestigt',grass_paver:'Rasengitter',concrete_plates:'Betonplatten','concrete:plates':'Betonplatten'};
+const SURF_COMFORT={asphalt:1,concrete:.88,'concrete:plates':.75,concrete_plates:.75,paving_stones:.78,paved:.85,sett:.42,cobblestone:.35,unhewn_cobblestone:.25,compacted:.72,fine_gravel:.7,gravel:.5,ground:.45,dirt:.42,earth:.42,sand:.22,grass:.3,woodchips:.3,unpaved:.5,grass_paver:.35};
+const SURF_COND={asphalt:70,concrete:62,paving_stones:62,paved:65,sett:55,cobblestone:50,compacted:58,fine_gravel:58,gravel:45,ground:40,dirt:38,earth:38,sand:30,grass:45,woodchips:40,unpaved:45};
+const SMOOTH={excellent:95,good:82,intermediate:60,bad:35,very_bad:20,horrible:10,very_horrible:5,impassable:0};
+const SMOOTH_DE={excellent:'sehr gut',good:'gut',intermediate:'mittel',bad:'schlecht',very_bad:'sehr schlecht',horrible:'katastrophal'};
+const comfortOf=(s,c)=>(SURF_COMFORT[s]??.7)*(.45+.55*c/100);
+
+function model(r){
+  const t=r.t,h=r.h,m={id:r.i,h,name:t.name||'',est:[]};
+  let cls,cw;
+  switch(h){
+    case 'primary':case 'trunk':case 'secondary':case 'secondary_link':cls='L';cw=3.25;break;
+    case 'tertiary':case 'tertiary_link':case 'unclassified':cls='dorf';cw=3;break;
+    case 'residential':cls='wohn';cw=2.75;break;
+    case 'living_street':cls='spiel';cw=2.6;break;
+    case 'pedestrian':cls='fuss';cw=2.5;break;
+    case 'service':cls='zufahrt';cw=(t.service==='driveway'||t.service==='parking_aisle')?1.4:1.75;break;
+    case 'track':cls='feld';cw=1.5;break;
+    case 'cycleway':cls='rad';cw=1.25;break;
+    case 'path':cls=t.bicycle==='designated'?'rad':'weg';cw=t.bicycle==='designated'?1.25:1;break;
+    case 'bridleway':cls='weg';cw=1;break;
+    case 'steps':cls='treppe';cw=.8;break;
+    default:cls='fuss';cw=.9;
+  }
+  if(t.width){const w=parseFloat(t.width);if(w>.5&&w<20)cw=w/2}
+  m.oneway=t.oneway==='yes'||t.junction==='roundabout';
+  const road=['L','dorf','wohn','spiel','zufahrt'].includes(cls);
+  if(road&&!t.width){if(t.lanes==='1')cw=Math.min(cw,2.1);if(m.oneway)cw=Math.min(cw,2.4)}
+  m.cls=cls;m.cw=cw;m.road=road;m.round=t.junction==='roundabout';
+  // Tempo
+  let ms=parseInt(t.maxspeed);
+  if(t.maxspeed==='walk')ms=7;
+  if(!ms){ms=cls==='spiel'?7:cls==='L'||cls==='dorf'?50:cls==='wohn'?30:cls==='zufahrt'?20:cls==='feld'?30:0;if(road)m.est.push('Tempo')}
+  m.ms=ms;m.msCond=t['maxspeed:conditional']||'';
+  // Radinfrastruktur je Seite (r = rechts in Zeichenrichtung)
+  const cv=s=>t['cycleway:'+s]||t['cycleway:both']||t.cycleway||'';
+  const facOf=v=>v==='track'||v==='opposite_track'?3:v==='lane'||v==='opposite_lane'?2:v==='separate'?-1:0;
+  m.facL=road?facOf(cv('left')):0;m.facR=road?facOf(cv('right')):0;
+  if(t.cycleway==='track'&&!t['cycleway:left']&&!t['cycleway:right']&&!t['cycleway:both']){m.facL=m.facR=3}
+  m.bikeRoad=t.bicycle_road==='yes';
+  m.sidepath=t.bicycle==='use_sidepath'||m.facL===-1||m.facR===-1;
+  m.bikeNo=t.bicycle==='no'||h==='steps'||(h==='footway'&&!['yes','designated','permissive'].includes(t.bicycle))||h==='pedestrian'&&t.bicycle!=='yes';
+  // Gehwege
+  const swv=s=>t['sidewalk:'+s]||t['sidewalk:both']||(t.sidewalk==='both'||t.sidewalk==='yes'?'yes':t.sidewalk===s?'yes':t.sidewalk==='no'||t.sidewalk==='none'?'no':t.sidewalk==='separate'?'separate':t.sidewalk?'no':'');
+  const sw=s=>{const v=swv(s);if(v==='yes')return 1.6;if(v===''&&road&&cls!=='spiel'&&cls!=='zufahrt'){m.unkSw=true;return cls==='wohn'?1.4:1.8}return 0};
+  m.swL=road?sw('left'):0;m.swR=road?sw('right'):0;if(m.unkSw)m.est.push('Gehweg');
+  // Belag & Zustand
+  m.surf=t.surface||'';if(!m.surf){m.surf=road?'asphalt':cls==='feld'?'compacted':cls==='rad'?'asphalt':'compacted';m.est.push('Belag')}
+  const noise=(hash(r.i)-.5)*24;
+  if(t.smoothness&&SMOOTH[t.smoothness]!==undefined)m.cond=SMOOTH[t.smoothness];
+  else{m.cond=clamp((SURF_COND[m.surf]??55)+noise,8,92);m.est.push('Zustand')}
+  if(m.facL===3||m.facR===3){
+    m.tsurf=t['cycleway:both:surface']||t['cycleway:right:surface']||t['cycleway:left:surface']||'';
+    if(!m.tsurf){m.tsurf='paving_stones';m.est.push('Radwegbelag')}
+    const sm=t['cycleway:both:smoothness'];
+    if(sm&&SMOOTH[sm]!==undefined)m.tcond=SMOOTH[sm];else{m.tcond=clamp((SURF_COND[m.tsurf]??55)-6+noise*.8,8,90);m.est.push('Radwegzustand')}
+  }
+  m.lit=t.lit;m.ref=t.ref||'';m.tags=t;
+  // Was fährt ein Rad hier?
+  const best=Math.max(m.facL,m.facR);
+  if(m.bikeRoad){m.risk=.14;m.stress=.1}
+  else if(!road){m.risk=m.bikeNo?0:.04;m.stress=0}
+  else if(best===3){m.risk=ms<=30?.15:.22;m.stress=ms<=30?.14:.2}
+  else if(best===2){m.risk=ms<=30?.16:.32;m.stress=.28}
+  else if(cls==='spiel'){m.risk=.1;m.stress=.06}
+  else if(cls==='zufahrt'){m.risk=.12;m.stress=.06}
+  else{m.risk=ms<=30?.42:ms<=50?1:1.2;m.stress=ms<=30?.32:.85;if(cls==='wohn'){m.risk*=.85;m.stress*=.85}}
+  m.rideSurf=best===3?m.tsurf:m.surf;m.rideCond=best===3?m.tcond:m.cond;
+  m.comfort=comfortOf(m.rideSurf,m.rideCond);
+  m.risk+=(1-m.rideCond/100)*.12;
+  m.bikeUse=!m.bikeNo&&!(m.sidepath&&road);
+  return m;
+}
+const roads=D.roads.map(r=>{const m=model(r);m.n=r.n;
+  let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9,len=0;
+  for(let k=0;k<r.n.length;k++){const p=N[r.n[k]];x0=Math.min(x0,p[0]);y0=Math.min(y0,p[1]);x1=Math.max(x1,p[0]);y1=Math.max(y1,p[1]);if(k)len+=Math.hypot(p[0]-N[r.n[k-1]][0],p[1]-N[r.n[k-1]][1])}
+  m.bb=[x0,y0,x1,y1];m.len=len;
+  m.half=m.cw+(m.facL===3||m.facR===3?2.1:0)+Math.max(m.swL,m.swR);
+  return m});
+const ORDER={treppe:0,fuss:1,weg:2,feld:3,rad:4,zufahrt:5,spiel:6,wohn:7,dorf:8,L:9};
+roads.sort((a,b)=>ORDER[a.cls]-ORDER[b.cls]);
+const inBounds=m=>m.bb[2]>0&&m.bb[0]<WM&&m.bb[3]>0&&m.bb[1]<HM;
+const nodeRoads=new Map();for(const m of roads)for(const n of m.n){let L=nodeRoads.get(n);if(!L){L=[];nodeRoads.set(n,L)}L.push(m)}
+
+/* =====================================================================
+   Geometrie-Helfer
+   ===================================================================== */
+function pts(m){if(!m._p)m._p=m.n.map(i=>N[i]);return m._p}
+function offsetLine(P,off){
+  if(!off)return P;const out=[];
+  for(let i=0;i<P.length;i++){
+    const a=P[Math.max(0,i-1)],b=P[i],c=P[Math.min(P.length-1,i+1)];
+    let n1x=0,n1y=0,n2x=0,n2y=0;
+    if(i>0){const dx=b[0]-a[0],dy=b[1]-a[1],l=Math.hypot(dx,dy)||1;n1x=-dy/l;n1y=dx/l}
+    if(i<P.length-1){const dx=c[0]-b[0],dy=c[1]-b[1],l=Math.hypot(dx,dy)||1;n2x=-dy/l;n2y=dx/l}
+    if(i===0){n1x=n2x;n1y=n2y}if(i===P.length-1){n2x=n1x;n2y=n1y}
+    let nx=n1x+n2x,ny=n1y+n2y;const nl=Math.hypot(nx,ny)||1;nx/=nl;ny/=nl;
+    const dot=nx*n1x+ny*n1y,sc=clamp(1/Math.max(dot,.35),1,2.5);
+    out.push([b[0]-nx*off*sc,b[1]-ny*off*sc]);
+  }
+  return out;
+}
+// Achtung: positiver Versatz = rechts in Zeichenrichtung (Bildschirm, y nach unten)
+function trace(c,P){c.beginPath();c.moveTo(P[0][0],P[0][1]);for(let i=1;i<P.length;i++)c.lineTo(P[i][0],P[i][1])}
+function strokeLine(c,P,w,style,dash){c.lineWidth=w;c.strokeStyle=style;if(dash)c.setLineDash(dash);trace(c,P);c.stroke();if(dash)c.setLineDash([])}
+function band(c,m,d0,d1,style,side){ // side: +1 rechts, -1 links
+  if(d1<=d0)return;const P=offsetLine(pts(m),-side*(d0+d1)/2);strokeLine(c,P,d1-d0,style)}
+
+/* =====================================================================
+   Musterkacheln (Pixel-Art, 1 Musterpixel = 0,5 m)
+   ===================================================================== */
+const PAT={};
+function mkPattern(w,h,fn){const cv=document.createElement('canvas');cv.width=w;cv.height=h;const c=cv.getContext('2d');const r=mulberry32(w*31+h);fn(c,r);return cv}
+const px=(c,x,y,w,h,col)=>{c.fillStyle=col;c.fillRect(x,y,w,h)};
+function speck(c,r,w,h,n,cols){for(let i=0;i<n;i++)px(c,r()*w|0,r()*h|0,1,1,cols[r()*cols.length|0])}
+function buildPatterns(){
+  PAT.asphalt=mkPattern(32,32,(c,r)=>{px(c,0,0,32,32,'#4b4d53');speck(c,r,32,32,80,['#55575e','#424449','#5c5e64'])});
+  PAT.paving_stones=mkPattern(16,16,(c,r)=>{px(c,0,0,16,16,'#8e8a82');for(let y=0;y<16;y+=2)for(let x=0;x<16;x+=4){const o=(y/2)%2?2:0;px(c,(x+o)%16,y,3,1,['#a29e95','#9a968d','#aaa69c'][r()*3|0])}});
+  PAT.paving_red=mkPattern(16,16,(c,r)=>{px(c,0,0,16,16,'#8a3c2d');for(let y=0;y<16;y+=2)for(let x=0;x<16;x+=4){const o=(y/2)%2?2:0;px(c,(x+o)%16,y,3,1,['#b0503c','#a64a37','#b85a45'][r()*3|0])}});
+  PAT.sett=mkPattern(12,12,(c,r)=>{px(c,0,0,12,12,'#5b5a57');for(let y=0;y<12;y+=3)for(let x=0;x<12;x+=3){const o=(y/3)%2?1:0;px(c,(x+o)%12,y,2,2,['#8a8780','#7d7a73','#96938b'][r()*3|0])}});
+  PAT.concrete=mkPattern(24,24,(c,r)=>{px(c,0,0,24,24,'#9c9a94');speck(c,r,24,24,40,['#a7a59f','#93918b']);px(c,0,0,24,1,'#86847e');px(c,0,0,1,24,'#86847e')});
+  PAT.compacted=mkPattern(24,24,(c,r)=>{px(c,0,0,24,24,'#c7b287');speck(c,r,24,24,90,['#d3bf95','#b9a479','#c2ad82','#ad986d'])});
+  PAT.gravel=mkPattern(24,24,(c,r)=>{px(c,0,0,24,24,'#a9a293');speck(c,r,24,24,120,['#bdb6a7','#948d7e','#cfc8b8'])});
+  PAT.ground=mkPattern(24,24,(c,r)=>{px(c,0,0,24,24,'#9a7b55');speck(c,r,24,24,90,['#a88a62','#8a6c48','#7f9a4d'])});
+  PAT.sand=mkPattern(24,24,(c,r)=>{px(c,0,0,24,24,'#d9c69a');speck(c,r,24,24,70,['#e6d6ae','#c9b586'])});
+  PAT.grass_s=mkPattern(16,16,(c,r)=>{px(c,0,0,16,16,'#7ca552');speck(c,r,16,16,30,['#6c9446','#8cb862'])});
+  PAT.sidewalk=mkPattern(12,12,(c,r)=>{px(c,0,0,12,12,'#bdb8ab');px(c,0,0,12,1,'#b0ab9d');px(c,0,0,1,12,'#b0ab9d');px(c,0,6,12,1,'#b5b0a3');px(c,6,0,1,12,'#b5b0a3')});
+  PAT.redasph=mkPattern(24,24,(c,r)=>{px(c,0,0,24,24,'#a9533f');speck(c,r,24,24,50,['#b45d48','#9b4a37'])});
+  PAT.grass=mkPattern(32,32,(c,r)=>{px(c,0,0,32,32,'#6aa64f');speck(c,r,32,32,70,['#5d9846','#78b35b']);for(let i=0;i<4;i++){const x=r()*30|0,y=r()*30|0;px(c,x,y,1,2,'#78b35b')}});
+  PAT.res=mkPattern(32,32,(c,r)=>{px(c,0,0,32,32,'#79ad5a');speck(c,r,32,32,60,['#6f9f50','#86b966','#91bf70'])});
+  PAT.meadow=mkPattern(32,32,(c,r)=>{px(c,0,0,32,32,'#88b45c');speck(c,r,32,32,70,['#7aa551','#97c26a','#e8dc6a'])});
+  PAT.farm=mkPattern(32,32,(c,r)=>{px(c,0,0,32,32,'#c4b06a');for(let k=1;k<32;k+=4)px(c,0,k,32,1,'#ab9853');speck(c,r,32,32,20,['#d4c27e'])});
+  PAT.heath=mkPattern(32,32,(c,r)=>{px(c,0,0,32,32,'#8e8f5c');speck(c,r,32,32,120,['#9a7a8e','#7e8150','#a8a36a','#8a6a80'])});
+  PAT.scrub=mkPattern(32,32,(c,r)=>{px(c,0,0,32,32,'#6f9a4c');for(let i=0;i<10;i++){const x=r()*29|0,y=r()*29|0;px(c,x,y,3,3,'#4f7e3a');px(c,x,y,2,1,'#6da552')}});
+  PAT.forest=mkPattern(48,48,(c,r)=>{px(c,0,0,48,48,'#2f5f2c');
+    for(let i=0;i<14;i++){const cx=r()*48|0,cy=r()*48|0,rad=4+(r()*4|0);
+      for(let y=-rad;y<=rad;y++)for(let x=-rad;x<=rad;x++){const d=x*x+y*y;if(d>rad*rad)continue;const sh=(x+y)/rad;const col=sh<-.5?'#5aa04a':sh>.5?'#1f4a22':'#3a7c37';px(c,(cx+x+48)%48,(cy+y+48)%48,1,1,col)}}});
+  PAT.military=mkPattern(32,32,(c,r)=>{px(c,0,0,32,32,'#8c9a6a');speck(c,r,32,32,80,['#7f8d5f','#99a676','#a89a6c'])});
+  PAT.industrial=mkPattern(32,32,(c,r)=>{px(c,0,0,32,32,'#a39e93');speck(c,r,32,32,40,['#99948a','#aca79c'])});
+  PAT.parking=mkPattern(20,20,(c,r)=>{px(c,0,0,20,20,'#5a5c62');speck(c,r,20,20,20,['#64666c','#505257']);px(c,0,0,1,10,'#c8c6bf')});
+  PAT.pitch=mkPattern(16,16,(c,r)=>{px(c,0,0,16,16,'#58a24a');px(c,0,0,16,8,'#62ad52')});
+  PAT.wetland=mkPattern(24,24,(c,r)=>{px(c,0,0,24,24,'#6f9a6c');speck(c,r,24,24,40,['#5f8aa0','#7aa877','#567f52'])});
+  PAT.water=mkPattern(32,32,(c,r)=>{px(c,0,0,32,32,'#3a79bd');for(let i=0;i<8;i++)px(c,r()*28|0,r()*30|0,4,1,'#6aa6e0')});
+  PAT.cemetery=mkPattern(16,16,(c,r)=>{px(c,0,0,16,16,'#6f9e58');for(let y=2;y<16;y+=6)for(let x=2;x<16;x+=5)px(c,x,y,2,3,'#a7a49c')});
+}
+let PCTX=null;const pcache=new Map();
+function pat(name){const k=name;let p=pcache.get(k);if(!p){p=PCTX.createPattern(PAT[name]||PAT.asphalt,'repeat');p.setTransform(new DOMMatrix().scale(.5));pcache.set(k,p)}return p}
+function surfPat(s,red){
+  if(s==='paving_stones'||s==='paved'||s==='grass_paver')return red?'paving_red':'paving_stones';
+  if(s==='sett'||s==='cobblestone'||s==='unhewn_cobblestone')return 'sett';
+  if(s==='concrete'||s==='concrete:plates'||s==='concrete_plates')return 'concrete';
+  if(s==='compacted'||s==='fine_gravel')return 'compacted';
+  if(s==='gravel'||s==='unpaved')return 'gravel';
+  if(s==='ground'||s==='dirt'||s==='earth'||s==='woodchips')return 'ground';
+  if(s==='sand')return 'sand';if(s==='grass')return 'grass_s';
+  return red?'redasph':'asphalt';
+}
+const AP={residential:'res',forest:'forest',wood:'forest',meadow:'meadow',grass:'meadow',grassland:'meadow',farmland:'farm',military:'military',industrial:'industrial',commercial:'industrial',retail:'industrial',farmyard:'industrial',cemetery:'cemetery',grave_yard:'cemetery',quarry:'sand',allotments:'meadow',recreation_ground:'meadow',heath:'heath',scrub:'scrub',water:'water',wetland:'wetland',sand:'sand',bare_rock:'gravel',parking:'parking',school:'res',kindergarten:'res',place_of_worship:'res',pitch:'pitch',park:'meadow',playground:'meadow',garden:'meadow',sports_centre:'industrial',track:'compacted',swimming_pool:'water',water_park:'water'};
+function areaPat(k){return AP[k.slice(2)]||null}
+const PRANK={military:0,farm:1,meadow:1,res:1,industrial:1,cemetery:1,forest:2,heath:2,scrub:2,wetland:2,sand:2,gravel:2,parking:3,pitch:4,compacted:4,water:5};
+
+/* =====================================================================
+   Chunks: 128 m × 128 m, 2 px/m
+   ===================================================================== */
+const CH=128,RES=2,CPX=CH*RES;
+const NCX=Math.ceil(WM/CH),NCY=Math.ceil(HM/CH);
+const areas=D.areas.filter(a=>!a.k.startsWith('b:')&&areaPat(a.k)).map(a=>({...a,bb:bboxOf(a.p[0]),pat:areaPat(a.k)}));
+const buildings=D.areas.filter(a=>a.k.startsWith('b:')).map(a=>({...a,bb:bboxOf(a.p[0])}));
+function bboxOf(c){let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;for(let i=0;i<c.length;i+=2){x0=Math.min(x0,c[i]);x1=Math.max(x1,c[i]);y0=Math.min(y0,c[i+1]);y1=Math.max(y1,c[i+1])}return[x0,y0,x1,y1]}
+areas.forEach(a=>a.area=(a.bb[2]-a.bb[0])*(a.bb[3]-a.bb[1]));
+areas.sort((a,b)=>(PRANK[a.pat]??1)-(PRANK[b.pat]??1)||b.area-a.area);
+const grid=(list,pad)=>{const G=Array.from({length:NCX*NCY},()=>[]);for(const o of list){const b=o.bb,p=pad(o);
+  const cx0=clamp(Math.floor((b[0]-p)/CH),0,NCX-1),cx1=clamp(Math.floor((b[2]+p)/CH),0,NCX-1),cy0=clamp(Math.floor((b[1]-p)/CH),0,NCY-1),cy1=clamp(Math.floor((b[3]+p)/CH),0,NCY-1);
+  if(b[2]+p<0||b[0]-p>WM||b[3]+p<0||b[1]-p>HM)continue;
+  for(let y=cy0;y<=cy1;y++)for(let x=cx0;x<=cx1;x++)G[y*NCX+x].push(o)}return G};
+const gAreas=grid(areas,()=>0),gBuild=grid(buildings,()=>3),gRoads=grid(roads,m=>m.half+1);
+const gLines=grid(D.lines.map(l=>({...l,bb:bboxOf(l.c)})),()=>2);
+const trees=D.pois.filter(p=>p.k==='natural:tree');
+
+const ROOFS=[['#c3593e','#a14531','#7a3324'],['#a94c36','#873b2a','#5e2a1f'],['#60666f','#4b5058','#363a41'],['#8c5b3d','#70472f','#503222'],['#bb6b4b','#97563c','#6d3e2b'],['#7b4f44','#634037','#462c26']];
+function polyPath(c,p){c.beginPath();for(const ring of p){c.moveTo(ring[0],ring[1]);for(let i=2;i<ring.length;i+=2)c.lineTo(ring[i],ring[i+1]);c.closePath()}}
+function drawBuilding(c,b){
+  const v=b.k.slice(2),h=hash(b.i),ring=b.p[0];
+  const flat=['garage','garages','industrial','commercial','retail','warehouse','carport','roof','school','sports_centre','sports_hall','public','service','kindergarten','apartments','fire_station','silo'].includes(v);
+  const pal=v==='church'?['#575b67','#3c3f48','#2c2f36']:ROOFS[(h*ROOFS.length)|0];
+  c.save();c.translate(1.2,1.2);polyPath(c,[ring]);c.fillStyle='rgba(20,35,20,.35)';c.fill();c.restore();
+  polyPath(c,[ring]);
+  if(flat){const fc=v==='school'||v==='kindergarten'?'#c4783c':v==='garage'||v==='garages'||v==='carport'?'#8f9297':v==='apartments'?'#9a6b56':'#8b9198';
+    c.fillStyle=fc;c.fill();c.lineWidth=.6;c.strokeStyle='rgba(0,0,0,.35)';c.stroke();
+    if(b.bb[2]-b.bb[0]>12){c.save();polyPath(c,[ring]);c.clip();c.lineWidth=1;c.strokeStyle='rgba(255,255,255,.18)';polyPath(c,[ring]);c.stroke();c.restore()}
+    return}
+  c.fillStyle=pal[0];c.fill();
+  // Satteldach: längste Kante bestimmt den First
+  let best=0,ax=1,ay=0;for(let i=0;i+3<ring.length;i+=2){const dx=ring[i+2]-ring[i],dy=ring[i+3]-ring[i+1],l=Math.hypot(dx,dy);if(l>best){best=l;ax=dx/l;ay=dy/l}}
+  let cx=0,cy=0,n=0;for(let i=0;i<ring.length-2;i+=2){cx+=ring[i];cy+=ring[i+1];n++}cx/=n;cy/=n;
+  c.save();polyPath(c,[ring]);c.clip();
+  c.fillStyle=pal[1];c.beginPath();c.moveTo(cx+ax*60,cy+ay*60);c.lineTo(cx-ax*60,cy-ay*60);c.lineTo(cx-ax*60+ay*60,cy-ay*60-ax*60*-1);c.lineTo(cx+ax*60+ay*60,cy+ay*60-ax*60*-1);c.closePath();
+  c.beginPath();const nx=-ay,ny=ax;c.moveTo(cx+ax*80,cy+ay*80);c.lineTo(cx-ax*80,cy-ay*80);c.lineTo(cx-ax*80+nx*80,cy-ay*80+ny*80);c.lineTo(cx+ax*80+nx*80,cy+ay*80+ny*80);c.closePath();c.fill();
+  c.strokeStyle='rgba(0,0,0,.07)';c.lineWidth=.5;for(let k=-20;k<=20;k+=1.5){c.beginPath();c.moveTo(cx+nx*k-ax*40,cy+ny*k-ay*40);c.lineTo(cx+nx*k+ax*40,cy+ny*k+ay*40);c.stroke()}
+  c.strokeStyle=pal[2];c.lineWidth=.6;c.beginPath();c.moveTo(cx-ax*best*.42,cy-ay*best*.42);c.lineTo(cx+ax*best*.42,cy+ay*best*.42);c.stroke();
+  if(h>.55){c.fillStyle='#3b2f2a';c.fillRect(cx+ax*best*.2-nx*1.2,cy+ay*best*.2-ny*1.2,1,1)}
+  if(h<.2){c.fillStyle='#26344d';c.save();c.translate(cx-nx*2.2,cy-ny*2.2);c.rotate(Math.atan2(ay,ax));c.fillRect(-best*.25,-1.2,best*.5,2.4);c.restore()}
+  c.restore();
+  polyPath(c,[ring]);c.lineWidth=.5;c.strokeStyle=pal[2];c.stroke();
+}
+function drawDefects(c,m,P,half,cond,red,salt){
+  if(cond>=85||half<.6)return;
+  const R=mulberry32(m.id*7+salt);
+  let acc=0;const step=Math.max(3,cond/4);
+  for(let i=1;i<P.length;i++){
+    const a=P[i-1],b=P[i],L=Math.hypot(b[0]-a[0],b[1]-a[1]);if(!L)continue;
+    const ux=(b[0]-a[0])/L,uy=(b[1]-a[1])/L;
+    for(acc+=L;acc>step;acc-=step){
+      const f=1-(acc-step)/L;if(f<0||f>1)continue;
+      const x=a[0]+(b[0]-a[0])*f,y=a[1]+(b[1]-a[1])*f,w=(R()*2-1)*(half-.5);const X=x-uy*w,Y=y+ux*w;const kind=R();
+      if(cond<35&&kind<.4){c.fillStyle=red?'#3a1a14':'#1f2023';c.beginPath();c.ellipse(X,Y,.6+R()*.5,.45+R()*.3,0,0,TAU);c.fill();c.fillStyle='rgba(120,140,155,.6)';c.fillRect(X-.2,Y-.1,.5,.25)}
+      else if(cond<55&&kind<.7){c.fillStyle=red?'rgba(60,25,15,.55)':'#3b3d42';c.fillRect(X-1,Y-.6,2+R()*1.5,1.2)}
+      else{c.strokeStyle=red?'#5a2418':'#2a2c30';c.lineWidth=.3;c.beginPath();c.moveTo(X,Y);let qx=X,qy=Y;for(let k=0;k<4;k++){qx+=ux*.6+(R()-.5)*.6;qy+=uy*.6+(R()-.5)*.6;c.lineTo(qx,qy)}c.stroke()}
+    }
+  }
+}
+function renderChunk(cx,cy){
+  const cv=document.createElement('canvas');cv.width=cv.height=CPX;const c=cv.getContext('2d');PCTX=c;pcache.clear();
+  c.setTransform(RES,0,0,RES,-cx*CH*RES,-cy*CH*RES);
+  const id=cy*NCX+cx;
+  c.fillStyle=pat('grass');c.fillRect(cx*CH,cy*CH,CH,CH);
+  for(const a of gAreas[id]){polyPath(c,a.p);c.fillStyle=pat(a.pat);c.fill('evenodd');
+    if(a.pat==='pitch'){c.lineWidth=.3;c.strokeStyle='rgba(255,255,255,.7)';polyPath(c,a.p);c.stroke()}}
+  for(const l of gLines[id]){const P=[];for(let i=0;i<l.c.length;i+=2)P.push([l.c[i],l.c[i+1]]);if(P.length<2)continue;
+    if(l.k.startsWith('w:'))strokeLine(c,P,l.k==='w:stream'?1.6:1,'#4b8bd0');
+    else if(l.k==='x:hedge'||l.k==='x:tree_row')strokeLine(c,P,1.4,'#356b31');
+    else if(l.k==='x:fence')strokeLine(c,P,.25,'#6b5e4c');
+    else if(l.k==='x:wall')strokeLine(c,P,.4,'#8a857a');}
+  c.lineCap='round';c.lineJoin='round';
+  const R=gRoads[id];
+  // 1) Gehwege + Hochbord-Radwege (Seitenraum)
+  for(const m of R){if(!m.road)continue;
+    for(const sd of[1,-1]){const sw=sd>0?m.swR:m.swL,fac=sd>0?m.facR:m.facL;let d=m.cw;
+      if(fac===3){band(c,m,d,d+.3,'#8d887c',sd);band(c,m,d+.3,d+1.9,pat(surfPat(m.tsurf,true)),sd);d+=2.1}
+      if(sw)band(c,m,d,d+sw,pat('sidewalk'),sd);
+    }}
+  // 2) Wege (Rad, Fuß, Feld)
+  for(const m of R){if(m.road)continue;const P=pts(m);
+    const col=m.cls==='rad'?(m.surf==='asphalt'?'redasph':surfPat(m.surf,true)):surfPat(m.surf,false);
+    strokeLine(c,P,m.cw*2+.5,m.cls==='rad'?'#7d3a2b':'rgba(60,50,35,.45)');
+    strokeLine(c,P,m.cw*2,pat(col));
+    if(m.cls==='treppe'){c.setLineDash([.3,.3]);strokeLine(c,P,m.cw*2,'rgba(0,0,0,.35)',[.3,.4])}
+    drawDefects(c,m,P,m.cw,m.cond,m.cls==='rad',3);
+  }
+  // 3) Bordstein + Fahrbahn
+  for(const m of R){if(!m.road)continue;const P=pts(m);strokeLine(c,P,m.cw*2+.5,m.cls==='spiel'?'#8e8a82':'#8d887c')}
+  for(const m of R){if(!m.road)continue;const P=pts(m);strokeLine(c,P,m.cw*2,pat(surfPat(m.surf,m.cls==='spiel'&&m.surf!=='asphalt')))}
+  // 4) Markierungen
+  for(const m of R){if(!m.road)continue;const P=pts(m);
+    if((m.cls==='L'||m.cls==='dorf')&&!m.oneway&&m.cw>=2.75&&m.surf==='asphalt')strokeLine(c,P,.15,m.cls==='L'?'#e9e6dc':'#d9d6cc',m.cls==='L'?[3,3]:[2,4]);
+    for(const sd of[1,-1]){const fac=sd>0?m.facR:m.facL;if(fac===2||fac===1){const o=m.cw-1.6;const Q=offsetLine(P,-sd*o);strokeLine(c,Q,.25,'#e9e6dc',fac===1?[1,1]:null)}}
+    if(m.bikeRoad){strokeLine(c,P,.4,'#2f6cbf',[1,6])}
+  }
+  // 5) Schäden auf Fahrbahn und Hochbord
+  for(const m of R){if(!m.road)continue;const P=pts(m);drawDefects(c,m,P,m.cw,m.cond,false,1);
+    if(m.tcond!==undefined)for(const sd of[1,-1]){const fac=sd>0?m.facR:m.facL;if(fac===3)drawDefects(c,m,offsetLine(P,-sd*(m.cw+1.1)),.8,m.tcond,true,sd>0?5:6)}}
+  // 6) Knoten: Ampeln, Zebrastreifen, Mini-Kreisel
+  for(const [ni,f] of NFlist[id]||[]){const p=N[ni],dir=nodeDir(ni);
+    if(f==='crossing'||f==='traffic_signals'){const L=nodeRoads.get(ni)?.reduce((a,m)=>m.road?Math.max(a,m.cw):a,0)||3;
+      c.save();c.translate(p[0],p[1]);c.rotate(dir);for(let k=-L+.3;k<L;k+=.9){c.fillStyle='#ebe8de';c.fillRect(k,-1.5,.5,3)}c.restore()}
+    if(f==='mini_roundabout'){c.fillStyle='#d4d0c4';c.beginPath();c.arc(p[0],p[1],2,0,TAU);c.fill();c.fillStyle='#e9e6dc';c.beginPath();c.arc(p[0],p[1],1.5,0,TAU);c.fill()}
+  }
+  // 7) Gebäude und Einzelbäume
+  for(const b of gBuild[id])drawBuilding(c,b);
+  for(const t of treesG[id]||[]){const R2=mulberry32(Math.round(t.x*13+t.y));c.fillStyle='rgba(20,40,20,.35)';c.beginPath();c.arc(t.x+1,t.y+1,3,0,TAU);c.fill();
+    for(let k=0;k<20;k++){const a=R2()*TAU,r=R2()*3;c.fillStyle=R2()<.5?'#3a7c37':'#5aa04a';c.fillRect(t.x+Math.cos(a)*r-.5,t.y+Math.sin(a)*r-.5,1,1)}}
+  return cv;
+}
+const NFlist={};for(const k in D.NF){const p=N[k];if(!p)continue;const id=clamp(Math.floor(p[1]/CH),0,NCY-1)*NCX+clamp(Math.floor(p[0]/CH),0,NCX-1);(NFlist[id]=NFlist[id]||[]).push([+k,D.NF[k]])}
+const treesG={};for(const t of trees){const id=clamp(Math.floor(t.y/CH),0,NCY-1)*NCX+clamp(Math.floor(t.x/CH),0,NCX-1);(treesG[id]=treesG[id]||[]).push(t)}
+function nodeDir(ni){const L=nodeRoads.get(ni);if(!L)return 0;const m=L.find(x=>x.road)||L[0];const k=m.n.indexOf(ni);const a=N[m.n[Math.max(0,k-1)]],b=N[m.n[Math.min(m.n.length-1,k+1)]];return Math.atan2(b[1]-a[1],b[0]-a[0])}
+
+/* ----------------------------- Überblick (0,5 px/m) ----------------------------- */
+const OV=.5,ovC=document.createElement('canvas');ovC.width=Math.ceil(WM*OV);ovC.height=Math.ceil(HM*OV);
+function renderOverview(){
+  const c=ovC.getContext('2d');c.setTransform(OV,0,0,OV,0,0);
+  c.fillStyle='#6aa64f';c.fillRect(0,0,WM,HM);
+  const col={res:'#7fae5f',forest:'#2f5f2c',meadow:'#88b45c',farm:'#c4b06a',heath:'#8e8f5c',scrub:'#6f9a4c',military:'#8c9a6a',industrial:'#a39e93',parking:'#5a5c62',pitch:'#58a24a',wetland:'#6f9a6c',water:'#3a79bd',cemetery:'#6f9e58',sand:'#d9c69a',compacted:'#c7b287',gravel:'#a9a293'};
+  for(const a of areas){polyPath(c,a.p);c.fillStyle=col[a.pat]||'#6aa64f';c.fill('evenodd')}
+  c.lineCap='round';c.lineJoin='round';
+  for(const m of roads){const P=pts(m);if(m.road)strokeLine(c,P,(m.cw+Math.max(m.swL,m.swR))*2,'#bdb8ab')}
+  for(const m of roads){const P=pts(m);strokeLine(c,P,Math.max(1.6,m.cw*2),m.road?'#4b4d53':m.cls==='rad'?'#b0503c':'#c7b287')}
+  for(const b of buildings){polyPath(c,[b.p[0]]);c.fillStyle=ROOFS[(hash(b.i)*ROOFS.length)|0][0];c.fill()}
+}
+
+/* =====================================================================
+   Verkehr auf dem echten Straßengraphen (Vorschau-Niveau)
+   ===================================================================== */
+const ADJ={car:new Map(),bike:new Map()};
+function addEdge(mode,a,b,m){let L=ADJ[mode].get(a);if(!L){L=[];ADJ[mode].set(a,L)}L.push({to:b,m})}
+for(const m of roads){
+  const carOK=m.road&&m.cls!=='zufahrt'||m.cls==='zufahrt'&&m.tags.service!=='parking_aisle'&&m.tags.service!=='driveway';
+  const bikeOK=m.bikeUse||(m.road&&m.sidepath===false)||m.cls==='rad'||(m.cls==='feld'&&!m.bikeNo)||(m.cls==='weg'&&!m.bikeNo);
+  for(let k=1;k<m.n.length;k++){const a=m.n[k-1],b=m.n[k];
+    if(carOK&&m.road){addEdge('car',a,b,m);if(!m.oneway)addEdge('car',b,a,m)}
+    if(bikeOK&&!m.bikeNo){addEdge('bike',a,b,m);if(!m.oneway||m.tags['oneway:bicycle']==='no')addEdge('bike',b,a,m)}
+  }
+}
+const segLen=(a,b)=>Math.hypot(N[a][0]-N[b][0],N[a][1]-N[b][1]);
+function cost(mode,a,b,m){const L=segLen(a,b);if(mode==='car')return L/(Math.max(10,m.ms||30)/3.6)*(m.cls==='zufahrt'?2.5:1);
+  const f=(m.road?1+m.risk*1.2:.9)*(1+(1-m.comfort)*1.2);return L/5*f}
+function dijkstra(mode,s,t){
+  const A=ADJ[mode];if(!A.has(s)||!A.has(t))return null;
+  const dist=new Map([[s,0]]),prev=new Map(),h=[[0,s]];
+  const push=(d,n)=>{h.push([d,n]);let i=h.length-1;while(i>0){const p=(i-1)>>1;if(h[p][0]<=h[i][0])break;[h[p],h[i]]=[h[i],h[p]];i=p}};
+  const pop=()=>{const top=h[0],last=h.pop();if(h.length){h[0]=last;let i=0;for(;;){const l=2*i+1,r=l+1;let m=i;if(l<h.length&&h[l][0]<h[m][0])m=l;if(r<h.length&&h[r][0]<h[m][0])m=r;if(m===i)break;[h[m],h[i]]=[h[i],h[m]];i=m}}return top};
+  let it=0;
+  while(h.length&&it++<60000){const [d,u]=pop();if(d>(dist.get(u)??1e18))continue;if(u===t)break;
+    for(const e of A.get(u)||[]){const nd=d+cost(mode,u,e.to,e.m);if(nd<(dist.get(e.to)??1e18)){dist.set(e.to,nd);prev.set(e.to,[u,e.m]);push(nd,e.to)}}}
+  if(!prev.has(t))return null;
+  const nodes=[t],ms=[];for(let u=t;u!==s;){const [p,m]=prev.get(u);nodes.push(p);ms.push(m);u=p}
+  return{nodes:nodes.reverse(),ms:ms.reverse()};
+}
+function laneOff(mode,m){
+  if(mode==='car')return m.cw<2.3?.2:m.cw/2;
+  if(!m.road)return m.cw*.35;
+  return m.cw-.55;
+}
+function makePoly(mode,route){
+  const P=[];const ns=route.nodes,ms=route.ms;
+  for(let k=0;k<ns.length;k++){
+    const p=N[ns[k]];const mIn=ms[k-1],mOut=ms[k];
+    let nx=0,ny=0,o=0,c=0;
+    if(k>0){const a=N[ns[k-1]],dx=p[0]-a[0],dy=p[1]-a[1],l=Math.hypot(dx,dy)||1;nx+=-dy/l;ny+=dx/l;o+=laneOff(mode,mIn);c++}
+    if(k<ns.length-1){const b=N[ns[k+1]],dx=b[0]-p[0],dy=b[1]-p[1],l=Math.hypot(dx,dy)||1;nx+=-dy/l;ny+=dx/l;o+=laneOff(mode,mOut);c++}
+    const nl=Math.hypot(nx,ny)||1;o/=c;
+    // Hochbord: Rad fährt hinter dem Bordstein
+    const mm=mOut||mIn;let side=o;
+    if(mode==='bike'&&mm.road&&Math.max(mm.facR,mm.facL)===3)side=mm.cw+1.1;
+    P.push({x:p[0]-(nx/nl)*side*-1,y:p[1]-(ny/nl)*side*-1,m:mm,node:ns[k]});
+  }
+  const cs=[0];for(let i=1;i<P.length;i++)cs.push(cs[i-1]+Math.hypot(P[i].x-P[i-1].x,P[i].y-P[i-1].y));
+  // Kurvenbremse
+  for(let i=1;i<P.length-1;i++){const a=P[i-1],b=P[i],c=P[i+1];const a1=Math.atan2(b.y-a.y,b.x-a.x),a2=Math.atan2(c.y-b.y,c.x-b.x);let d=Math.abs(a2-a1);if(d>Math.PI)d=TAU-d;b.cap=d>.6?(mode==='car'?5:3.5):d>.3?(mode==='car'?9:5):99}
+  return{P,cs};
+}
+let agents=[];const MAXA=160;
+const homes=buildings.filter(b=>{const v=b.k.slice(2);return['house','detached','semidetached_house','terrace','apartments','residential','yes'].includes(v)&&b.bb[0]>0&&b.bb[2]<WM&&b.bb[1]>0&&b.bb[3]<HM});
+const destPois=D.pois.filter(p=>!p.k.startsWith('natural')&&p.x>0&&p.x<WM&&p.y>0&&p.y<HM);
+const nodeGrid=new Map();
+for(const mode of['car','bike'])for(const n of ADJ[mode].keys()){const p=N[n];const k=mode+Math.floor(p[0]/50)+','+Math.floor(p[1]/50);let L=nodeGrid.get(k);if(!L){L=[];nodeGrid.set(k,L)}L.push(n)}
+function snap(mode,x,y){let best=-1,bd=1e9;const gx=Math.floor(x/50),gy=Math.floor(y/50);
+  for(let r=0;r<3&&best<0;r++)for(let yy=gy-r;yy<=gy+r;yy++)for(let xx=gx-r;xx<=gx+r;xx++){for(const n of nodeGrid.get(mode+xx+','+yy)||[]){const d=(N[n][0]-x)**2+(N[n][1]-y)**2;if(d<bd){bd=d;best=n}}}
+  return best}
+const exits=[];for(const m of roads){if(m.cls!=='L'&&m.cls!=='dorf')continue;for(const n of[m.n[0],m.n[m.n.length-1]]){const p=N[n];if(p[0]<5||p[0]>WM-5||p[1]<5||p[1]>HM-5)if(ADJ.car.has(n))exits.push(n)}}
+const CAR_COLS=['#c0392b','#2e5fa8','#e6e1d2','#33363b','#8a96a2','#d9a62e','#3f7f4f','#6b3f7a'];
+const SHIRTS=['#e4572e','#2e86de','#f4d35e','#8e44ad','#16a085','#f78fb3','#ffffff','#34495e'];
+let shareBike=.2;
+function spawnTrip(){
+  if(agents.length>=MAXA||!homes.length)return;
+  const through=exits.length>1&&rnd()<.25;
+  let mode=through?'car':(rnd()<shareBike?'bike':'car');
+  let s,t;
+  if(through){s=exits[rnd()*exits.length|0];t=exits[rnd()*exits.length|0];if(s===t)return}
+  else{const h=homes[rnd()*homes.length|0];const hx=(h.bb[0]+h.bb[2])/2,hy=(h.bb[1]+h.bb[3])/2;
+    let dx,dy;if(rnd()<.6&&destPois.length){const p=destPois[rnd()*destPois.length|0];dx=p.x;dy=p.y}else{const o=homes[rnd()*homes.length|0];dx=(o.bb[0]+o.bb[2])/2;dy=(o.bb[1]+o.bb[3])/2}
+    if(rnd()<.5){[s,t]=[snap(mode,hx,hy),snap(mode,dx,dy)]}else{[s,t]=[snap(mode,dx,dy),snap(mode,hx,hy)]}}
+  if(s<0||t<0||s===t)return;
+  const route=dijkstra(mode,s,t);if(!route||route.nodes.length<3)return;
+  const poly=makePoly(mode,route);if(poly.cs[poly.cs.length-1]<60)return;
+  const car=mode==='car';
+  agents.push({mode,P:poly.P,cs:poly.cs,total:poly.cs[poly.cs.length-1],s:0,seg:0,v:car?8:4,x:poly.P[0].x,y:poly.P[0].y,hx:1,hy:0,
+    v0:car?(.9+rnd()*.2):(4.2+rnd()*2),col:car?(rnd()*8|0):(rnd()*8|0),len:car?4.5:1.8,id:Math.random()});
+}
+function lightGreen(ni,hx,hy){const ns=Math.abs(hy)>Math.abs(hx);const ph=((performance.now()/1000*simSpeedF)+ni*3)%40;return ns?ph<17:(ph>=20&&ph<37)}
+let simSpeed=1,simSpeedF=1;
+function stepSim(dt){
+  for(let i=0;i<dt*2.2;i++)if(rnd()<dt*2.2/Math.ceil(dt*2.2))spawnTrip();
+  // Nachbarschaft
+  const cell=new Map();for(const A of agents){const k=Math.floor(A.x/20)+','+Math.floor(A.y/20);let L=cell.get(k);if(!L){L=[];cell.set(k,L)}L.push(A)}
+  for(const A of agents){
+    const car=A.mode==='car';const seg=A.P[A.seg+1]||A.P[A.seg];const m=seg.m;
+    let v0=car?(m.ms||30)/3.6*A.v0*(.75+.25*(SURF_COMFORT[m.surf]??.8)*(.5+.5*m.cond/100)):A.v0*(.7+.3*m.comfort);
+    for(let j=A.seg+1;j<A.P.length;j++){const dd=A.cs[j]-A.s;if(dd>30)break;const cap=A.P[j].cap||99;if(cap<99)v0=Math.min(v0,Math.sqrt(cap*cap+4*dd))}
+    v0=Math.max(1,v0);
+    let gap=1e9,vl=0;
+    const gx=Math.floor(A.x/20),gy=Math.floor(A.y/20);
+    for(let yy=gy-1;yy<=gy+1;yy++)for(let xx=gx-1;xx<=gx+1;xx++)for(const B of cell.get(xx+','+yy)||[]){
+      if(B===A)continue;const dx=B.x-A.x,dy=B.y-A.y,f=dx*A.hx+dy*A.hy;if(f<=0||f>30)continue;const lat=-dx*A.hy+dy*A.hx;if(Math.abs(lat)>(car?1.4:.9))continue;
+      if(A.hx*B.hx+A.hy*B.hy<.5)continue;const g=f-(A.len+B.len)/2;if(g<gap&&g>-1){gap=g;vl=B.v}}
+    // Ampel
+    for(let j=A.seg+1;j<A.P.length;j++){const dd=A.cs[j]-A.s;if(dd>40)break;const nf=D.NF[A.P[j].node];if(nf==='traffic_signals'&&!lightGreen(A.P[j].node,A.hx,A.hy)&&dd>3){gap=Math.min(gap,dd-4);vl=0;break}}
+    const a=1.4,b=2.2,T=car?1.1:.9,s0=car?2:1;
+    let acc=a*(1-(A.v/v0)**4);if(gap<1e8){const ss=s0+Math.max(0,A.v*T+A.v*(A.v-vl)/(2*Math.sqrt(a*b)));acc-=a*(ss/Math.max(gap,.1))**2}
+    A.v=clamp(A.v+Math.max(acc,-8)*dt,0,25);A.s+=A.v*dt;
+    if(A.s>=A.total){A.done=true;continue}
+    while(A.seg<A.cs.length-2&&A.cs[A.seg+1]<A.s)A.seg++;
+    const p=A.P[A.seg],q=A.P[A.seg+1],L=A.cs[A.seg+1]-A.cs[A.seg],f=L?(A.s-A.cs[A.seg])/L:0;
+    A.x=p.x+(q.x-p.x)*f;A.y=p.y+(q.y-p.y)*f;const hl=Math.hypot(q.x-p.x,q.y-p.y);if(hl>.01){A.hx=(q.x-p.x)/hl;A.hy=(q.y-p.y)/hl}
+  }
+  agents=agents.filter(A=>!A.done);
+}
+
+/* =====================================================================
+   Darstellung
+   ===================================================================== */
+const view=$('view'),vctx=view.getContext('2d'),mapwin=$('mapwin');
+let dpr=1,vw=0,vh=0;const cam={x:0,y:0,z:1}; // z = CSS-Pixel pro Meter
+const chunks=new Map();let chunkQueue=[];
+function resize(){dpr=window.devicePixelRatio||1;vw=mapwin.clientWidth;vh=mapwin.clientHeight;view.width=Math.round(vw*dpr);view.height=Math.round(vh*dpr);clampCam()}
+function clampCam(){const ww=vw/cam.z,hh=vh/cam.z;cam.x=clamp(cam.x,-ww*.5,WM-ww*.5);cam.y=clamp(cam.y,-hh*.5,HM-hh*.5)}
+function zoomAt(nz,sx,sy){nz=clamp(nz,.12,8);const wx=cam.x+sx/cam.z,wy=cam.y+sy/cam.z;cam.z=nz;cam.x=wx-sx/cam.z;cam.y=wy-sy/cam.z;clampCam()}
+let overlay=null,showNames=true,selected=null,hoverRoad=null;
+const condCol=v=>v>=80?'#3fae4a':v>=65?'#9cc23e':v>=50?'#e2c43a':v>=35?'#e48a34':'#d8452f';
+const riskCol=r=>r<.2?'#3fae4a':r<.35?'#9cc23e':r<.5?'#e2c43a':r<.75?'#e48a34':'#d8452f';
+const carSpr=new Map(),bikeSpr=new Map();
+function sprite(mode,ci,di){
+  const cache=mode==='car'?carSpr:bikeSpr,k=ci*64+di;if(cache.has(k))return cache.get(k);
+  const S=mode==='car'?22:11,cv=document.createElement('canvas');cv.width=cv.height=S;const c=cv.getContext('2d');const a=di*TAU/32,co=Math.cos(a),si=Math.sin(a);
+  for(let y=0;y<S;y++)for(let x=0;x<S;x++){const dx=x+.5-S/2,dy=y+.5-S/2,u=dx*co+dy*si,w=-dx*si+dy*co;let col=null;
+    if(mode==='car'){if(Math.abs(u)>9||Math.abs(w)>3.6||(Math.abs(u)>8&&Math.abs(w)>2.6))continue;const body=CAR_COLS[ci];col=body;
+      if(u>2&&u<5.2&&Math.abs(w)<2.8)col='#22303c';else if(u<-4.5&&u>-6.8&&Math.abs(w)<2.8)col='#1b242d';else if(Math.abs(w)>2.8)col='rgba(0,0,0,.25)';
+      if(u>7.8&&Math.abs(w)>2)col='#f6e7a8';if(u<-7.8&&Math.abs(w)>2)col='#b52b23'}
+    else{if(Math.abs(u)<=3.6&&Math.abs(w)<=.55)col=Math.abs(u)>2.2?'#111':'#4a4d52';if(u>-1.9&&u<1.2&&Math.abs(w)<1.6)col=SHIRTS[ci];if(u>=-.3&&u<1.3&&Math.abs(w)<.95)col='#f4f4f4'}
+    if(col){c.fillStyle=col;c.fillRect(x,y,1,1);if(mode==='car'&&col===CAR_COLS[ci]&&Math.abs(w)<1.4&&u>-4.5&&u<2){c.fillStyle='rgba(255,255,255,.12)';c.fillRect(x,y,1,1)}}}
+  cache.set(k,cv);return cv;
+}
+function render(){
+  const s=cam.z*dpr;vctx.setTransform(1,0,0,1,0,0);vctx.fillStyle='#101713';vctx.fillRect(0,0,view.width,view.height);
+  const useChunks=cam.z>=.6;
+  vctx.imageSmoothingEnabled=!useChunks;
+  // Überblick immer als Unterlage
+  vctx.drawImage(ovC,Math.round(-cam.x*s),Math.round(-cam.y*s),Math.round(WM*s),Math.round(HM*s));
+  if(useChunks){
+    const x0=Math.max(0,Math.floor(cam.x/CH)),y0=Math.max(0,Math.floor(cam.y/CH)),x1=Math.min(NCX-1,Math.floor((cam.x+vw/cam.z)/CH)),y1=Math.min(NCY-1,Math.floor((cam.y+vh/cam.z)/CH));
+    let made=0;const t0=performance.now();
+    for(let y=y0;y<=y1;y++)for(let x=x0;x<=x1;x++){const k=y*NCX+x;let cv=chunks.get(k);
+      if(!cv&&performance.now()-t0<22){cv=renderChunk(x,y);chunks.set(k,cv);made++;if(chunks.size>260){const first=chunks.keys().next().value;chunks.delete(first)}}
+      if(cv){chunks.delete(k);chunks.set(k,cv);
+        const X=Math.round((x*CH-cam.x)*s),Y=Math.round((y*CH-cam.y)*s),X2=Math.round(((x+1)*CH-cam.x)*s),Y2=Math.round(((y+1)*CH-cam.y)*s);
+        vctx.drawImage(cv,X,Y,X2-X,Y2-Y)}}
+  }
+  vctx.setTransform(s,0,0,s,-cam.x*s,-cam.y*s);
+  // Overlays
+  vctx.save();vctx.beginPath();vctx.rect(0,0,WM,HM);vctx.clip();
+  if(overlay){
+    vctx.fillStyle='rgba(12,20,16,.45)';vctx.fillRect(cam.x,cam.y,vw/cam.z,vh/cam.z);
+    vctx.lineCap='round';vctx.lineJoin='round';
+    for(const m of roads){if(!inView(m))continue;let col=null,w=Math.max(m.cw*2,3/cam.z);
+      if(overlay==='cond'&&(m.road||m.cls==='rad'||m.cls==='feld'))col=condCol(Math.min(m.cond,m.tcond??100));
+      if(overlay==='risk'&&m.bikeUse&&(m.road||m.cls==='rad'))col=riskCol(m.risk);
+      if(overlay==='risk'&&m.road&&!m.bikeUse)col='#7e8279';
+      if(overlay==='net'){if(m.cls==='rad'||m.bikeRoad)col='#e0563a';else if(Math.max(m.facL,m.facR)===3)col='#f08a3a';else if(Math.max(m.facL,m.facR)>=1)col='#f2c230';else if(m.road&&m.ms<=30&&m.bikeUse)col='#9cc23e';else if(m.road&&m.bikeUse)col='#9a9fa6';else if(m.cls==='feld'&&!m.bikeNo)col='#c7b287'}
+      if(col){strokeLine(vctx,pts(m),w*1.1,col)}}
+    if(overlay==='net'){vctx.setLineDash([4/cam.z,4/cam.z]);for(const rt of routeWays){strokeLine(vctx,pts(rt),2/cam.z,'#1f5aa6')}vctx.setLineDash([])}
+  }
+  if(hoverRoad){vctx.lineCap='round';strokeLine(vctx,pts(hoverRoad),hoverRoad.half*2+1.5,'rgba(255,255,255,.25)')}
+  if(selected){const P=pts(selected),o=selected.half+.6,w=Math.max(.3,2/cam.z);vctx.lineCap='butt';vctx.setLineDash([3,2]);
+    strokeLine(vctx,offsetLine(P,o),w,'#ffe25a');strokeLine(vctx,offsetLine(P,-o),w,'#ffe25a');vctx.setLineDash([]);if(cam.z<1){strokeLine(vctx,P,Math.max(1,3/cam.z),'#ffe25a')}}
+  vctx.restore();
+  // Fahrzeuge
+  vctx.setTransform(1,0,0,1,0,0);vctx.imageSmoothingEnabled=false;
+  const sprScale=Math.max(1,Math.round(cam.z*dpr/2*2)/2);
+  if(cam.z>=.5)for(const A of agents){const di=((Math.round(Math.atan2(A.hy,A.hx)/(TAU/32))%32)+32)%32;const sp=sprite(A.mode,A.col,di);
+    const k=s/4;const X=(A.x-cam.x)*s,Y=(A.y-cam.y)*s;vctx.drawImage(sp,Math.round(X-sp.width*k/2),Math.round(Y-sp.height*k/2),Math.round(sp.width*k),Math.round(sp.height*k))}
+  else for(const A of agents){const X=(A.x-cam.x)*s,Y=(A.y-cam.y)*s;vctx.fillStyle=A.mode==='car'?'#f2efe6':'#ff7a5a';vctx.fillRect(X-1.5*dpr,Y-1.5*dpr,3*dpr,3*dpr)}
+  // Namen
+  if(showNames&&cam.z>=.9)drawNames(s);
+  if(cam.z<.9)drawPlaceLabel(s);
+  drawPois(s);
+}
+function inView(m){const b=m.bb,p=m.half;return!(b[2]+p<cam.x||b[0]-p>cam.x+vw/cam.z||b[3]+p<cam.y||b[1]-p>cam.y+vh/cam.z)}
+const nameSpots=[];{const byName=new Map();for(const m of roads){if(!m.name||!m.road)continue;let L=byName.get(m.name);if(!L){L=[];byName.set(m.name,L)}L.push(m)}
+  for(const [name,L] of byName){for(const m of L){if(m.len<70)continue;const P=pts(m);let acc=0;for(let i=1;i<P.length;i++){const l=Math.hypot(P[i][0]-P[i-1][0],P[i][1]-P[i-1][1]);if(acc+l>m.len/2){const f=(m.len/2-acc)/l;let a=Math.atan2(P[i][1]-P[i-1][1],P[i][0]-P[i-1][0]);if(a>Math.PI/2)a-=Math.PI;if(a<-Math.PI/2)a+=Math.PI;nameSpots.push({name,x:P[i-1][0]+(P[i][0]-P[i-1][0])*f,y:P[i-1][1]+(P[i][1]-P[i-1][1])*f,a,len:m.len});break}acc+=l}}}}
+function drawNames(s){
+  vctx.save();vctx.font=`${Math.round(11*dpr)}px Silkscreen, monospace`;vctx.textAlign='center';vctx.textBaseline='middle';
+  for(const n of nameSpots){const X=(n.x-cam.x)*s,Y=(n.y-cam.y)*s;if(X<-200||Y<-50||X>view.width+200||Y>view.height+50)continue;
+    const tw=vctx.measureText(n.name).width;if(tw>n.len*s*.9)continue;
+    vctx.setTransform(Math.cos(n.a),Math.sin(n.a),-Math.sin(n.a),Math.cos(n.a),X,Y);
+    vctx.fillStyle='rgba(20,22,24,.75)';vctx.fillRect(-tw/2-3*dpr,-7*dpr,tw+6*dpr,14*dpr);vctx.fillStyle='#f2efe6';vctx.fillText(n.name,0,dpr)}
+  vctx.restore();
+}
+function drawPlaceLabel(s){const X=(WM*.55-cam.x)*s,Y=(HM*.45-cam.y)*s;vctx.font=`${Math.round(22*dpr)}px Silkscreen, monospace`;vctx.textAlign='center';vctx.fillStyle='rgba(16,23,19,.7)';const tw=vctx.measureText(D.place).width;vctx.fillRect(X-tw/2-8*dpr,Y-18*dpr,tw+16*dpr,30*dpr);vctx.fillStyle='#f2efe6';vctx.fillText(D.place,X,Y+4*dpr)}
+const POI_ICON={'amenity:school':['S','#c4783c'],'amenity:kindergarten':['K','#e08a3c'],'shop:supermarket':['€','#2e86de'],'shop:bakery':['B','#b98a45'],'amenity:pharmacy':['+','#c0392b'],'amenity:townhall':['R','#1f5aa6'],'amenity:place_of_worship':['†','#575b67'],'amenity:doctors':['+','#16a085'],'shop:bicycle':['F','#b5523b'],'amenity:library':['L','#8e44ad'],'amenity:fire_station':['W','#c0392b'],'amenity:police':['P','#2c3e50'],'amenity:fuel':['T','#555'],'amenity:post_office':['P','#e6b325']};
+function drawPois(s){if(cam.z<.6)return;vctx.setTransform(1,0,0,1,0,0);vctx.font=`${Math.round(10*dpr)}px Silkscreen, monospace`;vctx.textAlign='center';vctx.textBaseline='middle';
+  for(const p of D.pois){const ic=POI_ICON[p.k];if(!ic)continue;const X=(p.x-cam.x)*s,Y=(p.y-cam.y)*s;if(X<-20||Y<-20||X>view.width+20||Y>view.height+20)continue;const r=8*dpr;
+    vctx.fillStyle='#16201c';vctx.fillRect(X-r-dpr,Y-r-dpr,2*r+2*dpr,2*r+2*dpr);vctx.fillStyle=ic[1];vctx.fillRect(X-r,Y-r,2*r,2*r);vctx.fillStyle='#fff';vctx.fillText(ic[0],X,Y+dpr);
+    if(cam.z>=1.6&&p.nm){vctx.fillStyle='rgba(20,22,24,.75)';const tw=vctx.measureText(p.nm).width;vctx.fillRect(X-tw/2-3*dpr,Y+r+2*dpr,tw+6*dpr,13*dpr);vctx.fillStyle='#f2efe6';vctx.fillText(p.nm,X,Y+r+9*dpr)}}}
+
+/* =====================================================================
+   Auswahl, Info-Panel, Bestandsaufnahme
+   ===================================================================== */
+function pickRoad(wx,wy){let best=null,bd=1e9;
+  for(const m of roads){const b=m.bb;if(wx<b[0]-m.half-4||wx>b[2]+m.half+4||wy<b[1]-m.half-4||wy>b[3]+m.half+4)continue;const P=pts(m);
+    for(let i=1;i<P.length;i++){const ax=P[i-1][0],ay=P[i-1][1],bx=P[i][0],by=P[i][1],dx=bx-ax,dy=by-ay,l2=dx*dx+dy*dy||1;const t=clamp(((wx-ax)*dx+(wy-ay)*dy)/l2,0,1);const d=Math.hypot(ax+dx*t-wx,ay+dy*t-wy)-m.cw;
+      const pri=d-(m.road?.5:0);if(pri<bd){bd=pri;best=m}}}
+  return bd<Math.max(4,8/cam.z)?best:null}
+function chip(t,k){return`<span class="chip ${k||''}">${t}</span>`}
+function condBar(label,v,sub,est){const col=v>=80?'var(--ok)':v>=50?'var(--warn)':'var(--bad)';return`<div class="cond"><span>${label} <span class="lbl">${sub}</span>${est?' <span class="est">geschätzt</span>':''}</span><b>${Math.round(v)}</b><div class="bar"><s style="width:${v}%;background:${col}"></s></div></div>`}
+function sectionOf(m){if(!m.name)return[m];return roads.filter(r=>r.name===m.name&&r.cls===m.cls)}
+function inspect(m){
+  selected=m;const el=$('inspect');
+  if(!m){el.innerHTML='<div class="insp-title">Nichts ausgewählt</div><div class="insp-sub">Klick auf eine Straße oder einen Weg, um Querschnitt, Zustand und die OpenStreetMap-Daten zu sehen.</div>';$('insp-kind').textContent='';return}
+  $('insp-kind').textContent=m.cls==='L'&&m.ref?m.ref:'';
+  const name=m.name||(m.cls==='rad'?'Geh- und Radweg':CLS[m.cls]);
+  const all=sectionOf(m),km=all.reduce((a,r)=>a+r.len,0);
+  let h=`<div class="insp-title">${name}</div><div class="insp-sub">${CLS[m.cls]}${m.round?' · Kreisverkehr':''}${m.road?` · Tempo ${m.ms===7?'Schritt':m.ms}${m.msCond?' (zeitweise 30)':''}`:''}<br>Dieser Abschnitt ${fmt(m.len)} m · ganze Straße ${fmt(km/1000,2)} km</div>`;
+  h+=`<canvas class="xs" id="xs"></canvas><div class="xs-cap">Querschnitt aus OSM-Tags · Fahrtrichtung nach oben</div>`;
+  h+=condBar(m.road?'Fahrbahn':'Weg',m.cond,SURF[m.surf]||m.surf,m.est.includes('Zustand'));
+  if(m.tcond!==undefined)h+=condBar('Hochbord-Radweg',m.tcond,SURF[m.tsurf]||m.tsurf,m.est.includes('Radwegzustand'));
+  const ch=[];
+  if(m.bikeNo)ch.push(chip('Für Räder gesperrt','bad'));
+  else if(m.sidepath&&m.road)ch.push(chip('Radweg daneben benutzungspflichtig','warn'));
+  if(m.road&&!m.bikeRoad&&Math.max(m.facL,m.facR)<=0&&m.bikeUse&&m.ms>=50)ch.push(chip(`Mischverkehr mit Tempo ${m.ms}`,'bad'));
+  if(m.ms>=70&&m.road)ch.push(chip(`Tempo ${m.ms} im Ortsbereich`,'bad'));
+  if(Math.max(m.facL,m.facR)===3)ch.push(chip('Hochbord: schlecht sichtbar für Abbieger','warn'));
+  if(m.tsurf==='paving_stones')ch.push(chip('Radweg gepflastert: rumpelig','warn'));
+  if(['sett','cobblestone'].includes(m.surf))ch.push(chip('Kopfsteinpflaster','bad'));
+  if(['sand','ground','dirt','earth','woodchips','grass'].includes(m.surf)&&!m.bikeNo)ch.push(chip(SURF[m.surf]+': bei Regen schwierig','bad'));
+  if(m.cond<35)ch.push(chip('Schlaglöcher wahrscheinlich','bad'));else if(m.cond<55)ch.push(chip('Risse und Flickstellen','warn'));
+  if(m.lit==='no'&&m.bikeUse)ch.push(chip('Unbeleuchtet','warn'));
+  if(m.cls==='spiel')ch.push(chip('Verkehrsberuhigt','good'));
+  if(m.ms<=30&&m.road&&m.cls!=='spiel')ch.push(chip('Tempo 30','good'));
+  if(m.cls==='rad'&&m.cond>=70)ch.push(chip('Eigener Radweg in gutem Zustand','good'));
+  if(ch.length)h+=`<div class="chips">${ch.join('')}</div>`;
+  if(m.bikeUse)h+=`<dl class="kv"><dt>Risiko fürs Rad</dt><dd>${Math.round(m.risk*100)} / 100</dd><dt>Fahrkomfort</dt><dd>${Math.round(m.comfort*100)} %</dd></dl>`;
+  if(m.est.length)h+=`<div class="est">Geschätzt, weil in OSM nicht eingetragen: ${m.est.join(', ')}</div>`;
+  const T=m.tags;const keys=Object.keys(T).filter(k=>k!=='name');
+  h+=`<dl class="kv"><dt>highway</dt><dd>${m.h}</dd>${keys.map(k=>`<dt>${k}</dt><dd>${String(T[k]).replace(/[<>&]/g,'')}</dd>`).join('')}</dl>`;
+  h+=`<div class="osm"><a href="https://www.openstreetmap.org/way/${m.id}" target="_blank" rel="noopener">Weg ${m.id} in OpenStreetMap ansehen</a></div>`;
+  el.innerHTML=h;drawXS($('xs'),m);
+}
+function drawXS(cv,m){
+  const r=cv.getBoundingClientRect(),dp=window.devicePixelRatio||1;cv.width=Math.round(r.width*dp);cv.height=Math.round(r.height*dp);
+  const c=cv.getContext('2d');PCTX=c;pcache.clear();
+  const L=[];// Zonen von links nach rechts: [breite, stil, label]
+  const side=(sd)=>{const out=[];const fac=sd>0?m.facR:m.facL,sw=sd>0?m.swR:m.swL;
+    if(fac===3)out.push([.3,'#8d887c',''],[1.6,surfPat(m.tsurf,true),'Rad '+fmt(1.6,1)]);
+    if(sw)out.push([sw,'sidewalk','Geh '+fmt(sw,1)]);return out};
+  if(m.road){
+    const left=side(-1).reverse(),right=side(1);
+    const fl=m.facL===1||m.facL===2,fr=m.facR===1||m.facR===2;
+    L.push(...left);
+    if(fl)L.push([1.6,'bikelane','Rad 1,6']);
+    L.push([m.cw-(fl?1.6:0),surfPat(m.surf,false),'Fahrbahn '+fmt(m.cw-(fl?1.6:0),2)]);
+    L.push([m.cw-(fr?1.6:0),surfPat(m.surf,false),m.oneway?'':'Fahrbahn '+fmt(m.cw-(fr?1.6:0),2)]);
+    if(fr)L.push([1.6,'bikelane','Rad 1,6']);
+    L.push(...right);
+  } else {L.push([1.2,'grass',''],[m.cw*2,m.cls==='rad'?surfPat(m.surf,true):surfPat(m.surf,false),fmt(m.cw*2,1)+' m'],[1.2,'grass',''])}
+  const tot=L.reduce((a,z)=>a+z[0],0),sc=(cv.width-8*dp)/Math.max(tot,4),top=6*dp,hh=cv.height-40*dp;
+  let x=4*dp+(cv.width-8*dp-tot*sc)/2;const labels=[];
+  c.save();c.scale(1,1);
+  for(const z of L){const w=z[0]*sc;
+    if(z[1]==='bikelane'){c.fillStyle='#5e5152'}else if(PAT[z[1]]){const p=c.createPattern(PAT[z[1]],'repeat');p.setTransform(new DOMMatrix().scale(dp*1.5));c.fillStyle=p}else c.fillStyle=z[1];
+    const raised=['sidewalk','paving_red','redasph','#8d887c'].includes(z[1])||z[1]==='grass';
+    c.fillRect(x,top+(raised?0:4*dp),w,hh-(raised?0:4*dp));
+    if(z[2])labels.push([x+w/2,z[2]]);x+=w}
+  c.restore();
+  // Mittellinie & Pfeile
+  if(m.road){const mid=4*dp+(cv.width-8*dp-tot*sc)/2+L.slice(0,L.findIndex(z=>z[2].startsWith('Fahrbahn'))+1).reduce((a,z)=>a+z[0]*sc,0);
+    if(!m.oneway){c.fillStyle='#e9e6dc';c.fillRect(mid-dp,top+hh*.3,2*dp,hh*.4)}
+    c.fillStyle='rgba(255,255,255,.8)';c.font=`${14*dp}px VT323, monospace`;c.textAlign='center';
+    if(m.oneway)c.fillText('▲',mid,top+hh*.6);else{c.fillText('▼',mid-m.cw*sc/2,top+hh*.6);c.fillText('▲',mid+m.cw*sc/2,top+hh*.6)}}
+  c.fillStyle='#5a5f57';c.fillRect(0,top+hh,cv.width,dp);
+  c.font=`${10*dp}px Pixelify Sans, sans-serif`;c.textAlign='center';
+  labels.forEach((l,i)=>{const y=top+hh+(i%2?26:13)*dp;c.strokeStyle='#8a836f';c.beginPath();c.moveTo(l[0],top+hh);c.lineTo(l[0],y-9*dp);c.stroke();c.fillStyle='#5a5f57';c.fillText(l[1],clamp(l[0],24*dp,cv.width-24*dp),y)});
+}
+function survey(){
+  const inB=roads.filter(inBounds);
+  const roadKm=inB.filter(m=>m.road).reduce((a,m)=>a+m.len,0)/1000;
+  const sep=inB.filter(m=>m.cls==='rad').reduce((a,m)=>a+m.len,0)/1000;
+  const track=inB.filter(m=>m.road&&(m.facL===3||m.facR===3)).reduce((a,m)=>a+m.len*((m.facL===3)+(m.facR===3))/2,0)/1000;
+  const lanes=inB.filter(m=>m.road&&(m.facL===2||m.facR===2||m.facL===1||m.facR===1)).reduce((a,m)=>a+m.len,0)/1000;
+  const t30=inB.filter(m=>m.road&&m.cls!=='zufahrt'&&m.ms<=30).reduce((a,m)=>a+m.len,0)/Math.max(1,inB.filter(m=>m.road&&m.cls!=='zufahrt').reduce((a,m)=>a+m.len,0));
+  const signals=Object.values(D.NF).filter(f=>f==='traffic_signals').length;
+  const bikeWays=inB.filter(m=>m.bikeUse&&(m.road||m.cls==='rad'));
+  const condAvg=bikeWays.reduce((a,m)=>a+m.rideCond*m.len,0)/Math.max(1,bikeWays.reduce((a,m)=>a+m.len,0));
+  const riskAvg=bikeWays.reduce((a,m)=>a+m.risk*m.len,0)/Math.max(1,bikeWays.reduce((a,m)=>a+m.len,0));
+  $('facts').innerHTML=[['Straßen',fmt(roadKm,1)+' km'],['Eigene Radwege',fmt(sep,1)+' km'],['Hochbord',fmt(track,1)+' km'],['Tempo ≤ 30',Math.round(t30*100)+' %'],['Ampeln',signals],['Ø Zustand Rad',Math.round(condAvg)]].map(f=>`<div class="fact"><span class="lbl">${f[0]}</span><b>${f[1]}</b></div>`).join('');
+  // Beläge, auf denen Räder fahren
+  const bySurf=new Map();for(const m of bikeWays.concat(inB.filter(m=>m.cls==='feld'&&!m.bikeNo))){const k=SURF[m.rideSurf]||m.rideSurf;bySurf.set(k,(bySurf.get(k)||0)+m.len)}
+  const tot=[...bySurf.values()].reduce((a,b)=>a+b,0);
+  const rows=[...bySurf.entries()].sort((a,b)=>b[1]-a[1]).slice(0,7);
+  let h=`<div class="note">Wo Räder fahren dürfen: ${fmt(tot/1000,1)} km. Ø Risiko ${Math.round(riskAvg*100)} / 100.</div><div class="lbl" style="margin:8px 0 4px">Belag der Radstrecken</div><div class="bars">`;
+  for(const [k,v] of rows)h+=`<div class="row"><span>${k}</span><i style="width:${Math.max(2,v/tot*100)}%"></i><b>${fmt(v/1000,1)} km</b></div>`;
+  h+=`</div><div class="lbl" style="margin:10px 0 4px">Radinfrastruktur an Straßen</div><div class="bars">`;
+  const roadLen=inB.filter(m=>m.road&&m.cls!=='zufahrt').reduce((a,m)=>a+m.len,0);
+  for(const [k,v] of[['Hochbord-Radweg',track*1000],['Rad-/Schutzstreifen',lanes*1000],['Radweg daneben',inB.filter(m=>m.road&&m.sidepath).reduce((a,m)=>a+m.len,0)],['Mischverkehr',roadLen-track*1000-lanes*1000]])h+=`<div class="row"><span>${k}</span><i style="width:${Math.max(2,v/roadLen*100)}%"></i><b>${fmt(v/1000,1)} km</b></div>`;
+  h+='</div>';$('survey').innerHTML=h;
+  // Rangliste
+  const byName=new Map();for(const m of bikeWays){if(!m.name)continue;let o=byName.get(m.name);if(!o){o={name:m.name,len:0,score:0,ms:[]};byName.set(m.name,o)}o.len+=m.len;o.score+=m.len*(m.risk*.7+(1-m.comfort)*.6);o.ms.push(m)}
+  const top=[...byName.values()].filter(o=>o.len>150).sort((a,b)=>b.score-a.score).slice(0,7);
+  $('rank').innerHTML=top.map((o,i)=>{const r=o.ms.reduce((a,m)=>a+m.risk*m.len,0)/o.len,c=o.ms.reduce((a,m)=>a+m.rideCond*m.len,0)/o.len;return`<li><button class="bev" data-rank="${i}">${o.name}<span>Risiko ${Math.round(r*100)} · Zustand ${Math.round(c)}</span></button></li>`}).join('');
+  $('rank').onclick=e=>{const b=e.target.closest('[data-rank]');if(!b)return;const o=top[+b.dataset.rank];const m=o.ms.sort((a,b)=>b.len-a.len)[0];flyTo(m);inspect(m)};
+}
+function flyTo(m){const b=m.bb;if(cam.z<1.2)cam.z=1.6;cam.x=(b[0]+b[2])/2-vw/cam.z/2;cam.y=(b[1]+b[3])/2-vh/cam.z/2;clampCam()}
+const routeWays=[];{const ids=new Set();for(const rt of D.routes)for(const w of rt.w)ids.add(w);for(const m of roads)if(ids.has(m.id))routeWays.push(m)}
+
+/* ----------------------------- Eingabe ----------------------------- */
+const pointers=new Map();let down=null,moved=false,pinch=null;
+const evPos=e=>{const r=view.getBoundingClientRect();return{x:e.clientX-r.left,y:e.clientY-r.top}};
+view.addEventListener('pointerdown',e=>{view.setPointerCapture(e.pointerId);const p=evPos(e);pointers.set(e.pointerId,p);
+  if(pointers.size===2){const [a,b]=[...pointers.values()];pinch={d:Math.hypot(a.x-b.x,a.y-b.y),z:cam.z,mx:(a.x+b.x)/2,my:(a.y+b.y)/2};return}down=p;moved=false});
+view.addEventListener('pointermove',e=>{const p=evPos(e);
+  if(pointers.has(e.pointerId)){const prev=pointers.get(e.pointerId);pointers.set(e.pointerId,p);
+    if(pinch&&pointers.size===2){const [a,b]=[...pointers.values()];const d=Math.hypot(a.x-b.x,a.y-b.y),mx=(a.x+b.x)/2,my=(a.y+b.y)/2;cam.x-=(mx-pinch.mx)/cam.z;cam.y-=(my-pinch.my)/cam.z;pinch.mx=mx;pinch.my=my;zoomAt(pinch.z*d/pinch.d,mx,my);return}
+    if(down&&Math.hypot(p.x-down.x,p.y-down.y)>4)moved=true;
+    if(moved){cam.x-=(p.x-prev.x)/cam.z;cam.y-=(p.y-prev.y)/cam.z;clampCam()}}
+  const wx=cam.x+p.x/cam.z,wy=cam.y+p.y/cam.z;hoverRoad=pointers.size?null:pickRoad(wx,wy);
+  const tip=$('tip');if(hoverRoad){const m=hoverRoad;tip.innerHTML=`<b>${m.name||CLS[m.cls]}</b>${CLS[m.cls]}${m.road?' · Tempo '+(m.ms===7?'Schritt':m.ms):''}<br>Zustand ${Math.round(Math.min(m.cond,m.tcond??100))}${m.bikeUse?' · Risiko '+Math.round(m.risk*100):''}`;tip.hidden=false;
+    tip.style.left=clamp(p.x+14,4,vw-tip.offsetWidth-4)+'px';tip.style.top=clamp(p.y+16,4,vh-tip.offsetHeight-4)+'px'}else tip.hidden=true});
+function endP(e){if(!pointers.has(e.pointerId))return;const p=pointers.get(e.pointerId);pointers.delete(e.pointerId);
+  if(pinch){if(pointers.size<2)pinch=null;return}
+  if(!moved&&down){const m=pickRoad(cam.x+p.x/cam.z,cam.y+p.y/cam.z);inspect(m)}down=null}
+view.addEventListener('pointerup',endP);view.addEventListener('pointercancel',endP);
+view.addEventListener('pointerleave',()=>{hoverRoad=null;$('tip').hidden=true});
+view.addEventListener('wheel',e=>{e.preventDefault();const p=evPos(e);zoomAt(cam.z*Math.pow(1.0015,-e.deltaY),p.x,p.y)},{passive:false});
+$('z-in').onclick=()=>zoomAt(cam.z*1.4,vw/2,vh/2);$('z-out').onclick=()=>zoomAt(cam.z/1.4,vw/2,vh/2);
+function setOverlay(o){overlay=overlay===o?null:o;document.querySelectorAll('[data-ov]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.ov===overlay));
+  const lg=$('legend');lg.hidden=!overlay;
+  if(overlay==='cond')lg.innerHTML='<div class="lbl">Zustand von Fahrbahn und Radweg</div><div class="bar"></div><div class="ends"><span>gut</span><span>marode</span></div>';
+  if(overlay==='risk')lg.innerHTML='<div class="lbl">Risiko für Radfahrende</div><div class="bar"></div><div class="ends"><span>sicher</span><span>gefährlich</span></div><div class="keys"><i style="background:#7e8279"></i><span>Räder müssen auf den Radweg daneben</span></div>';
+  if(overlay==='net')lg.innerHTML='<div class="lbl">Radnetz</div><div class="keys"><i style="background:#e0563a"></i><span>Eigener Radweg</span><i style="background:#f08a3a"></i><span>Hochbord-Radweg</span><i style="background:#f2c230"></i><span>Rad-/Schutzstreifen</span><i style="background:#9cc23e"></i><span>Tempo ≤ 30, Mischverkehr</span><i style="background:#9a9fa6"></i><span>Tempo 50+, Mischverkehr</span><i style="background:#c7b287"></i><span>Feld- und Waldweg</span><i style="background:#1f5aa6;height:2px"></i><span>Ausgeschilderte Radroute</span></div>'}
+document.querySelectorAll('[data-ov]').forEach(b=>b.onclick=()=>setOverlay(b.dataset.ov));
+$('t-names').onclick=()=>{showNames=!showNames;$('t-names').setAttribute('aria-pressed',showNames)};
+document.querySelectorAll('[data-speed]').forEach(b=>b.onclick=()=>{simSpeed=+b.dataset.speed;document.querySelectorAll('[data-speed]').forEach(x=>x.setAttribute('aria-pressed',x===b))});
+window.addEventListener('keydown',e=>{const k=e.key.toLowerCase();if(k==='z')setOverlay('cond');if(k==='s')setOverlay('risk');if(k==='r')setOverlay('net');if(k==='n')$('t-names').click();if(k==='+'||k==='=')$('z-in').click();if(k==='-')$('z-out').click()});
+
+/* ----------------------------- Start ----------------------------- */
+(function logo(){const c=$('logo').getContext('2d');px(c,0,0,16,16,'#1f5aa6');px(c,1,1,14,14,'#2a6bc0');const wh=(cx,cy)=>{for(let y=-3;y<=3;y++)for(let x=-3;x<=3;x++){const d=x*x+y*y;if(d>=5&&d<=10)px(c,cx+x,cy+y,1,1,'#fff')}};wh(4,10);wh(11,10);for(let k=0;k<5;k++)px(c,5+k,9-((k/2)|0),1,1,'#fff');px(c,7,6,4,1,'#fff');px(c,10,5,2,1,'#fff');px(c,6,5,2,1,'#fff')})();
+$('place').textContent=D.place;
+buildPatterns();
+new ResizeObserver(resize).observe(mapwin);resize();
+renderOverview();
+survey();
+// Start: Ortskern
+{const tr=roads.filter(m=>inBounds(m)&&(m.facR===3||m.facL===3)).sort((a,b)=>b.len-a.len)[0]||roads.find(m=>m.cls==='L')||roads[roads.length-1];cam.z=vw<600?1:1.4;const b=tr.bb;cam.x=(b[0]+b[2])/2-vw/cam.z/2;cam.y=(b[1]+b[3])/2-vh/cam.z/2;clampCam();inspect(tr)}
+for(let i=0;i<120;i++)spawnTrip();for(let i=0;i<200;i++)stepSim(.25);
+let last=performance.now();
+function frame(now){const dt=Math.min(.1,(now-last)/1000);last=now;simSpeedF=simSpeed;
+  if(simSpeed>0){let sd=dt*simSpeed;while(sd>1e-4){const h=Math.min(.05,sd);stepSim(h);sd-=h}}
+  render();$('loading').hidden=true;requestAnimationFrame(frame)}
+requestAnimationFrame(frame);
+})();
+</script>

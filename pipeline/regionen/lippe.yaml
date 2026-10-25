@@ -1,0 +1,10 @@
+# Kreis Lippe nach der Verwaltungsgrenze aus OSM, plus 1,5 km Rand
+name: Kreis Lippe
+slug: lippe
+quellen:
+  - https://download.geofabrik.de/europe/germany/nordrhein-westfalen/detmold-regbez-latest.osm.pbf
+gebiet:
+  typ: verwaltung
+  name: Kreis Lippe
+  admin_level: 6
+rand_m: 1500

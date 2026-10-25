@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+# Arbeitsdaten der Pipeline (Quellen, Ausschnitte, Kacheln)
+daten/
+data/
+*.osm.pbf
+*.osm
+*.part
+
+# Eigene Regionen (z. B. Heimatort) bleiben lokal
+pipeline/regionen/lokal/*
+!pipeline/regionen/lokal/README.md

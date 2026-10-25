@@ -1,0 +1,9 @@
+# Für eigene kleine Ausschnitte, z. B. den Export von openstreetmap.org:
+#   python -m rtc bauen regionen/ausschnitt.yaml --daten ./daten --eingabe map.osm
+name: Ausschnitt (Test)
+slug: ausschnitt
+quellen:
+  - https://download.geofabrik.de/europe/germany/nordrhein-westfalen/detmold-regbez-latest.osm.pbf
+gebiet:
+  typ: alles
+rand_m: 0

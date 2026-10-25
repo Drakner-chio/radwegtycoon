@@ -1,0 +1,12 @@
+# Vorlage: 100 km um einen Mittelpunkt (berührt NRW, Niedersachsen und Hessen,
+# daher der Deutschland-Auszug). Zentrum anpassen oder Kopie unter regionen/lokal/.
+# Alternativ eine vorhandene Datei: quellen: [/data/quellen/planet-latest.osm.pbf]
+name: Umkreis 100 km
+slug: umkreis-100km
+quellen:
+  - https://download.geofabrik.de/europe/germany-latest.osm.pbf
+gebiet:
+  typ: kreis
+  zentrum: [51.9376, 8.8796]   # lat, lon – Beispiel: Detmold
+  radius_km: 100
+rand_m: 0
