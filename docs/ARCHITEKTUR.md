@@ -102,3 +102,8 @@ geschätzt ist.
 - Bestandsaufnahme pro Ort: nächster Ortsmittelpunkt zur Bildmitte (bis zum doppelten Radius je Rang:
   Stadt 6 km, Kleinstadt 3 km, Dorf/Stadtteil 1,5 km, Weiler 0,7 km); gezählt werden eigene Kanten der
   Detailkacheln im einfachen Radius, Ausbauten eingerechnet. Kachelindizes sind absolute UTM-Kilometer.
+- Radrouten-Overlay (`T`): jede Route in eigener Farbe (Hash des Namens), mehrere Routen auf einer Kante
+  nebeneinander. Legende = Routen im Bild; Klick hebt eine Route hervor. Im Info-Fenster lässt sich die
+  hervorgehobene Route komplett markieren (alle geladenen Detailkacheln) und in einem Auftrag ausbauen.
+  Dafür enthält Stufe 1 seit Format 2 alle Routenkanten.
+- „Zum Radweg ausbauen“ macht aus Feld-/Wald-/Fußwegen einen roten Asphalt-Radweg (`cls` wird `rad`).

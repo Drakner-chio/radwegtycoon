@@ -284,9 +284,9 @@ class Pass2(osmium.SimpleHandler):
                 if nid not in (a, b):
                     rec["on"] = eid
                 self._add(0, ix, iy, "nodes", lambda ox, oy: {**rec, "x": enc([(ne, nn)], ox, oy)[0], "y": enc([(ne, nn)], ox, oy)[1]})
-            # Überblick
-            if cls in ("auto", "L", "dorf"):
-                lm = {k2: m[k2] for k2 in ("cls", "name", "ref", "ms", "cw", "oneway") if k2 in m}
+            # Überblick: Hauptstraßen, dazu jede Kante einer ausgeschilderten Radroute (zum Verfolgen der Route)
+            if cls in ("auto", "L", "dorf") or m.get("routes"):
+                lm = {k2: m[k2] for k2 in ("cls", "name", "ref", "ms", "cw", "oneway", "routes") if k2 in m}
                 s1 = shapely.simplify(shapely.LineString(seg), 3).coords[:]
                 for ix, iy in tiles_of_line(s1, self.S1, 10):
                     self._add(1, ix, iy, "roads", lambda ox, oy: {"id": eid, "c": enc(s1, ox, oy), "m": lm})

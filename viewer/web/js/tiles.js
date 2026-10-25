@@ -78,7 +78,7 @@ export class TileStore {
       const P = pts(r.c);
       const p = this.patchFor && this.patchFor(r.id);
       const m = p ? { ...r.m, ...p } : r.m;
-      const road = { id: r.id, w: r.w, a: r.a, b: r.b, len: r.len, own: !!r.own, m, m0: r.m, P, bb: bb(P) };
+      const road = { id: r.id, w: r.w, a: r.a, b: r.b, len: r.len ?? P.reduce((a, p, i) => i ? a + Math.hypot(p[0] - P[i - 1][0], p[1] - P[i - 1][1]) : 0, 0), own: !!r.own, m, m0: r.m, P, bb: bb(P) };
       road.half = halfWidth(m);
       return road;
     });

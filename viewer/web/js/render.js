@@ -168,6 +168,7 @@ export class Painter {
     else for (const r of R) { const m = r.m; if (!isRoad(m)) continue; const h = r.half; if (h > m.cw) stroke(c, r.P, W(h * 2), SOLID.sidewalk); }
     // 2) Wege
     for (const r of R) { const m = r.m; if (isRoad(m)) continue;
+      if (m.surf === undefined) continue; // Überblick: Routenkanten ohne Belag nur im Routen-Overlay
       const red = m.cls === 'rad';
       const pat = red ? (m.surf === 'asphalt' ? 'redasph' : surfPat(m.surf, true)) : surfPat(m.surf, false);
       if (fine) stroke(c, r.P, m.cw * 2 + .5, red ? '#7d3a2b' : 'rgba(60,50,35,.45)');

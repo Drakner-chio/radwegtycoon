@@ -88,3 +88,10 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--sign);outline-o
 .bau-btn:disabled{opacity:.5;cursor:not-allowed}
 .zug{display:flex;gap:6px;align-items:center;font-size:12px;margin-bottom:4px}
 .row-btns{display:flex;gap:6px;margin-top:6px}
+.routes{display:flex;flex-direction:column;gap:2px;margin-top:4px;max-height:220px;overflow:auto}
+.rt{display:flex;align-items:center;gap:6px;background:none;border:1px solid transparent;padding:1px 4px;text-align:left;cursor:pointer;font-size:12px}
+.rt:hover,.rt.on{border-color:var(--lo);background:var(--paper)}
+.rt i,.chip.route i{width:14px;height:5px;display:inline-block;flex:none;margin-right:4px;vertical-align:middle}
+button.chip{cursor:pointer;font:inherit;font-size:11px}
+.chip.route.on{outline:2px solid var(--sign)}
+.legend{pointer-events:auto}

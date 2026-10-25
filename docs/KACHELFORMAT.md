@@ -1,4 +1,4 @@
-# Kachelformat (Version 1, Spielmodell 2)
+# Kachelformat (Version 2, Spielmodell 2)
 
 Jede Kachel ist eine gzip-komprimierte JSON-Datei `tiles/{stufe}/{ix}_{iy}.json.gz`.
 
@@ -34,7 +34,9 @@ abgeschnitten, Flächen schon).
 }
 ```
 
-In Stufe 1 und 2 enthalten Straßen nur `id`, `c` und ein verkürztes `m`.
+In Stufe 1 und 2 enthalten Straßen nur `id`, `c` und ein verkürztes `m` (`cls`, `name`, `ref`, `ms`, `cw`,
+`oneway`, `routes`). Stufe 1 enthält Haupt- und Sammelstraßen und seit Format 2 zusätzlich jede Kante einer
+ausgeschilderten Radroute (auch Rad- und Wirtschaftswege), damit Routen im Überblick verfolgbar sind.
 
 ### Spielmodell `m`
 

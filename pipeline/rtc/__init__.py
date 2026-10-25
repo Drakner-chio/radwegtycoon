@@ -7,6 +7,6 @@ __version__ = "0.1.0"
 MODEL_VERSION = 2
 
 # Version des Kachelformats (Aufbau der JSON-Dateien).
-FORMAT_VERSION = 1
+FORMAT_VERSION = 2
 
 CRS = "EPSG:25832"  # ETRS89 / UTM Zone 32N – amtliches System in NRW, Meter

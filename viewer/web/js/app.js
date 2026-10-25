@@ -1,7 +1,7 @@
 // Radweg Tycoon – Kachel-Viewer: Kamera, Detailstufen, Raster-Cache, Auswahl, Overlays.
 import { TileStore, isRoad } from './tiles.js';
 import { Spiel, AUSBAU, gesamt, wendeAn, strassenzug } from './game.js';
-import { Painter, buildPatterns, stroke, offsetLine, bikeValues, condColor, riskColor, drawCrossSection, clamp } from './render.js';
+import { Painter, buildPatterns, hashStr, stroke, offsetLine, bikeValues, condColor, riskColor, drawCrossSection, clamp } from './render.js';
 
 const $ = id => document.getElementById(id);
 const fmt = (v, d = 0) => Number(v).toLocaleString('de-DE', { minimumFractionDigits: d, maximumFractionDigits: d });
@@ -189,11 +189,48 @@ function loadedTiles(lod) {
   for (let iy = Math.floor(n0 / T); iy <= Math.floor(n1 / T); iy++) for (let ix = Math.floor(e0 / T); ix <= Math.floor(e1 / T); ix++) { const t = store.get(lod, ix, iy); if (t) out.push(t); }
   return out;
 }
+const ROUTE_COLS = ['#2f7de1', '#e0563a', '#a45ee5', '#18b39a', '#f08a3a', '#e84f9b', '#d9b520', '#5cc24a'];
+const routeColor = n => ROUTE_COLS[Math.floor(hashStr(n) * ROUTE_COLS.length)];
+let routeSel = null, routeSig = '';
+function drawRoutes(lod) {
+  const w = Math.max(3.2 / cam.z, 1.5), lens = new Map();
+  const vx0 = cam.x, vy0 = cam.y, vx1 = cam.x + vw / cam.z, vy1 = cam.y + vh / cam.z;
+  vctx.lineCap = 'round'; vctx.lineJoin = 'round';
+  for (const pass of [0, 1]) for (const t of loadedTiles(lod)) for (const r of t.roads) {
+    const rs = r.m.routes; if (!rs || !rs.length) continue;
+    if (lod === 0 && !r.own) continue;
+    const inView = !(r.bb[2] < vx0 || r.bb[0] > vx1 || r.bb[3] < vy0 || r.bb[1] > vy1);
+    if (!inView) continue;
+    rs.forEach((n, i) => {
+      const sel = routeSel === n;
+      if (pass === 0) { lens.set(n, (lens.get(n) || 0) + (r.len || 0)); if (routeSel && !sel) stroke(vctx, offsetLine(r.P, (i - (rs.length - 1) / 2) * w), w * .8, 'rgba(230,230,220,.35)'); }
+      else if (!routeSel || sel) { const P = rs.length > 1 && !routeSel ? offsetLine(r.P, (i - (rs.length - 1) / 2) * w) : r.P; if (sel) stroke(vctx, P, w * 2.2, '#10171399'); stroke(vctx, P, sel ? w * 1.5 : w, routeColor(n)); }
+    });
+  }
+  // Legende: Routen im Bild, längste zuerst
+  const list = [...lens.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10);
+  const sig = list.map(x => x[0]).join('|') + '#' + routeSel + lod;
+  if (sig !== routeSig) {
+    routeSig = sig;
+    $('legend').innerHTML = `<div class="lbl">Radrouten im Bild</div><div class="routes">${list.map(([n]) => `<button class="rt${routeSel === n ? ' on' : ''}" data-route="${esc(n)}"><i style="background:${routeColor(n)}"></i>${esc(n)}</button>`).join('') || '<div class="hint">Keine Radroute im Bild.</div>'}</div><div class="hint">Route anklicken: hervorheben${lod === 0 ? ' · im Info-Fenster ganze Route markieren' : ' · zum Ausbauen hineinzoomen'}.</div>`;
+  }
+}
+function waehleRoute(n) {
+  routeSel = routeSel === n ? null : n; routeSig = ''; dirty = true;
+  if (overlay !== 'route') setOverlay('route');
+  if (selected) inspect(selected);
+}
+function routeKanten(n) {
+  const out = new Map();
+  for (const t of store.cache.values()) if (t && t.lod === 0) for (const r of t.roads) if (r.m.routes && r.m.routes.includes(n) && !out.has(r.id)) out.set(r.id, r);
+  return [...out.values()];
+}
 function drawOverlay(top) {
   const lod = top >= 2 ? 0 : 1;
   vctx.fillStyle = 'rgba(12,20,16,.45)'; vctx.fillRect(cam.x, cam.y, vw / cam.z, vh / cam.z);
   vctx.lineCap = 'round'; vctx.lineJoin = 'round';
   const minW = 2.5 / cam.z;
+  if (overlay === 'route') return drawRoutes(lod);
   for (const t of loadedTiles(lod)) for (const r of t.roads) {
     if (lod === 0 && !r.own) continue;
     const m = r.m; let col = null;
@@ -292,8 +329,9 @@ function inspect(r) {
   if (m.frs) ch.push(['Fahrradstraße', 'good']);
   if (m.cls === 'spiel') ch.push(['Verkehrsberuhigt', 'good']);
   if (isRoad(m) && m.cls !== 'spiel' && (m.ms || 99) <= 30) ch.push(['Tempo ≤ 30', 'good']);
-  if (m.routes) for (const n of m.routes) ch.push(['Radroute: ' + n, 'route']);
   if (ch.length) h += `<div class="chips">${ch.map(c => `<span class="chip ${c[1]}">${esc(c[0])}</span>`).join('')}</div>`;
+  if (m.routes) h += `<div class="chips">${m.routes.map(n => `<button class="chip route${routeSel === n ? ' on' : ''}" data-route="${esc(n)}" title="Route auf der Karte hervorheben"><i style="background:${routeColor(n)}"></i>${esc(n)}</button>`).join('')}</div>`;
+  if (routeSel && m.routes && m.routes.includes(routeSel)) { const rk = routeKanten(routeSel); h += `<button class="bev bau-btn" data-route-mark="1"><span>Route „${esc(routeSel)}“ markieren</span><b>${rk.length} Abschn.</b></button><div class="note">Markiert alle geladenen Abschnitte (${fmt(rk.reduce((a, x) => a + x.len, 0) / 1000, 1)} km). Mehr laden: herauszoomen bis „Ort“.</div>`; }
   if (bv.use) h += `<dl class="kv"><dt>Risiko fürs Rad</dt><dd>${Math.round(bv.risk * 100)} / 100</dd><dt>Fahrkomfort</dt><dd>${Math.round(bv.comfort * 100)} %</dd></dl>`;
   if (est.size) h += `<div class="est">Geschätzt, weil in OSM nicht eingetragen: ${[...est].map(e => EST[e] || e).join(', ')}</div>`;
   const skip = new Set(['name', 'ref', 'est', 'routes']);
@@ -343,7 +381,12 @@ function renderSpiel() {
   $('undo').disabled = !spiel.s.log.length;
 }
 function setupSpiel() {
-  $('inspect').addEventListener('click', e => { const b = e.target.closest('[data-bau]'); if (b) baue(b.dataset.bau); });
+  $('inspect').addEventListener('click', e => {
+    const b = e.target.closest('[data-bau]'); if (b) baue(b.dataset.bau);
+    const rt = e.target.closest('[data-route]'); if (rt) waehleRoute(rt.dataset.route);
+    if (e.target.closest('[data-route-mark]') && routeSel) { multi = routeKanten(routeSel); zugModus = false; if (multi.length) inspect(multi.includes(selected) ? selected : multi[0]); }
+  });
+  $('legend').addEventListener('click', e => { const rt = e.target.closest('[data-route]'); if (rt) waehleRoute(rt.dataset.route); });
   $('inspect').addEventListener('change', e => { if (e.target.id === 'zug') { zugModus = e.target.checked; if (selected) inspect(selected); dirty = true; } });
   $('undo').onclick = () => { const e = spiel.rueckgaengig(); if (e) nachBau('Rückgängig: ' + (AUSBAU.find(a => a.id === e.a)?.name || '') + ' (' + eur(e.kosten) + ' zurück)'); };
   $('neu').onclick = () => { if (!$('neu').dataset.sicher) { $('neu').dataset.sicher = 1; $('neu').textContent = 'Wirklich? Nochmal klicken'; setTimeout(() => { delete $('neu').dataset.sicher; $('neu').textContent = 'Neues Spiel'; }, 3000); return; } spiel.neu(); nachBau('Neues Spiel gestartet.'); };
@@ -451,7 +494,8 @@ function setOverlay(o) {
   if (overlay === 'cond') lg.innerHTML = `<div class="lbl">Zustand Fahrbahn und Radweg</div>${grad}<div class="ends"><span>gut</span><span>marode</span></div>`;
   if (overlay === 'risk') lg.innerHTML = `<div class="lbl">Risiko für Radfahrende</div>${grad}<div class="ends"><span>sicher</span><span>gefährlich</span></div><div class="keys"><i style="background:#7e8279"></i><span>Radweg daneben benutzen</span></div>`;
   if (overlay === 'net') lg.innerHTML = '<div class="lbl">Radnetz</div><div class="keys"><i style="background:#e0563a"></i><span>Radweg / Fahrradstraße</span><i style="background:#f08a3a"></i><span>Hochbord-Radweg</span><i style="background:#f2c230"></i><span>Rad-/Schutzstreifen</span><i style="background:#9cc23e"></i><span>Tempo ≤ 30, Mischverkehr</span><i style="background:#9a9fa6"></i><span>Tempo 50+, Mischverkehr</span><i style="background:#7e8279"></i><span>Radweg daneben</span><i style="background:#c7b287"></i><span>Feld- und Waldweg</span><i style="background:rgba(31,90,166,.55);height:8px"></i><span>Ausgeschilderte Radroute</span></div>';
-  if (overlay && levelIndex() < 2) lg.innerHTML += '<div class="hint">Weit herausgezoomt: nur Haupt- und Sammelstraßen.</div>';
+  if (overlay === 'route') { routeSig = ''; lg.innerHTML = ''; }
+  if (overlay && overlay !== 'route' && levelIndex() < 2) lg.innerHTML += '<div class="hint">Weit herausgezoomt: nur Haupt- und Sammelstraßen.</div>';
 }
 
 /* ----------------------------- Eingabe ----------------------------- */
@@ -502,7 +546,7 @@ $('t-names').onclick = () => { showNames = !showNames; $('t-names').setAttribute
 window.addEventListener('keydown', e => {
   if (e.target.closest && e.target.closest('input')) return;
   const k = e.key.toLowerCase();
-  if (k === 'z') setOverlay('cond'); if (k === 's') setOverlay('risk'); if (k === 'r') setOverlay('net'); if (k === 'n') $('t-names').click();
+  if (k === 'z') setOverlay('cond'); if (k === 's') setOverlay('risk'); if (k === 'r') setOverlay('net'); if (k === 't') setOverlay('route'); if (k === 'n') $('t-names').click();
   if (k === '+' || k === '=') $('z-in').click(); if (k === '-') $('z-out').click();
   const pan = 120 / cam.z;
   if (k === 'arrowleft') cam.x -= pan; if (k === 'arrowright') cam.x += pan; if (k === 'arrowup') cam.y -= pan; if (k === 'arrowdown') cam.y += pan;
