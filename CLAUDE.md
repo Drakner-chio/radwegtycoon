@@ -6,8 +6,9 @@ Doku, UI, Commit-Messages): Deutsch.
 
 ## Stand
 - `pipeline/`: OSM → Kacheln, siehe `docs/ARCHITEKTUR.md` und `docs/KACHELFORMAT.md`.
+- `viewer/`: Kartenviewer (statisch, nginx), lädt `daten/<slug>/karte/`; Aufruf `?region=<slug>`.
 - `prototypen/`: Testdorf-Spiel (Feldraster) und erste Ortsvorschau (eine HTML-Datei mit
-  eingebetteten Daten). Beide sind Vorstufen; das eigentliche Spiel soll die Kacheln laden.
+  eingebetteten Daten). Beide sind Vorstufen; das eigentliche Spiel baut auf dem Viewer auf.
 
 ## Regeln
 - Koordinaten immer UTM 32N (EPSG:25832) in Metern; Kachelkoordinaten in Dezimetern relativ zur Ecke.

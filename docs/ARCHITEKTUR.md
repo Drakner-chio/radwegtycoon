@@ -70,7 +70,19 @@ geschätzt ist.
 
 ## Nächste Schritte
 
-1. Kachel-Viewer: die Ortsvorschau so umbauen, dass sie Kacheln nachlädt (ganz Lippe flüssig).
+1. ~~Kachel-Viewer~~ erledigt: `viewer/` (siehe unten).
 2. Spiel auf dem Graphen: Simulation mit Vorfahrt, Ampeln, Kreisverkehren; Bauen pro Straßenzug.
 3. Grobe Ebene: Verkehrsströme zwischen Orten, geeicht mit Straßenverkehrszählung und Pendlerstatistik.
 4. Weitere Daten: Zensus-Raster (Einwohner), Unfallatlas (Radunfälle), Zählstellen.
+
+## Kartenviewer (`viewer/`)
+
+- Reine statische Seite (ES-Module, kein Build-Schritt), ausgeliefert von nginx; Kacheln per Volume unter `daten/`.
+- Kacheln werden als gzip geladen und im Browser mit `DecompressionStream` entpackt.
+- Weltkoordinaten im Viewer: x = Ost − Ost₀, y = Nord₀ − Nord (y nach unten), in Metern.
+- Vier Darstellungsstufen: fern (LOD 2), Überblick (LOD 1), Ort und Detail (LOD 0). Gezeichnet wird in
+  Raster-Stücke, die zwischengespeichert werden; darunter liegt immer die gröbere Stufe, damit beim
+  Nachladen keine Löcher entstehen.
+- Muster im Pixel-Stil mit 0,5 m pro Musterpixel; Spuren, Radwege und Gehwege als versetzte Linien
+  (positiv = rechts der Zeichenrichtung).
+- Der Inspektor zeigt das Spielmodell einer Kante; geschätzte Felder (`est`) sind markiert.

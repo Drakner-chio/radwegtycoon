@@ -9,6 +9,7 @@ OpenStreetMap; Auto- und Radverkehr werden simuliert.
 | Ordner | Inhalt |
 |---|---|
 | `pipeline/` | Kartenpipeline: OpenStreetMap → Spielkacheln (Python, Docker) |
+| `viewer/` | Kartenviewer im Spielstil: lädt die Kacheln nach, ganze Region flüssig (nginx, Docker) |
 | `prototypen/` | Bisherige Prototypen: Testdorf-Spiel und die erste Ortsvorschau |
 | `docs/` | Architektur und Kachelformat |
 
@@ -58,6 +59,22 @@ python -m rtc bauen regionen/ausschnitt.yaml --daten ./daten --eingabe ~/Downloa
 python -m rtc vorschau regionen/ausschnitt.yaml --daten ./daten
 python -m pytest tests
 ```
+
+## Kartenviewer
+
+Zeigt eine fertig gebaute Region im Pixel-Stil: vom ganzen Kreis bis zur einzelnen Straße mit Querschnitt,
+Belag, Zustand und Risiko fürs Rad. Die Kacheln werden beim Verschieben und Zoomen nachgeladen.
+
+```bash
+docker build -t radwegtycoon-viewer viewer/
+docker run -d --name radwegtycoon-viewer --restart unless-stopped -p 8090:80 \
+  -v /mnt/user/appdata/radwegtycoon:/usr/share/nginx/html/daten:ro radwegtycoon-viewer
+# dann im Browser:  http://<server>:8090/?region=lippe
+```
+
+`region` ist der `slug` der Regionsdatei, der Viewer lädt `daten/<slug>/karte/`. Nach einem neuen
+Pipeline-Lauf reicht ein Neuladen der Seite; nach `git pull` das Image neu bauen und den Container neu starten.
+Tasten: Mausrad/+/− zoomen, Pfeile verschieben, `Z` Zustand, `S` Sicherheit, `R` Radnetz, `N` Namen.
 
 ## Lizenz der Kartendaten
 
