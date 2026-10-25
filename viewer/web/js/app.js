@@ -864,7 +864,7 @@ function zeichneIso() {
   for (const z of zugSel) if (z !== selected) umriss(z, 'rgba(255,226,90,.7)', 'rgba(255,226,90,.12)');
   if (selected) umriss(selected, '#ffe25a', 'rgba(255,226,90,.18)');
   if (werkzeug !== 'auswahl') m.push(...werkzeugMarker());
-  const fehlt = Iso.zeichne(vctx, { live: liveAktiv(), marker: m });
+  const fehlt = Iso.zeichne(vctx, { live: liveAktiv(), marker: m, zeit: performance.now() / 1000 });
   // Kamera der Karte mitführen (Rückweg, gespeicherte Position)
   cam.x = Iso.cam.x - vw / cam.z / 2; cam.y = Iso.cam.y - vh / cam.z / 2;
   $('lvl').textContent = `Spielansicht · ${Iso.blick()}blick · ${fmt(Iso.pxProM(), 0)} px/m`;

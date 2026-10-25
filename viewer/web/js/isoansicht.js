@@ -398,16 +398,18 @@ function baueStatisch() {
     for (const h of z.haus) if (h.cx > r[0] - 30 && h.cx < r[2] + 30 && h.cy > r[1] - 30 && h.cy < r[3] + 30) obj.push({ typ: 'h', o: h, d: tiefe(h.cx, h.cy) });
     for (const b of z.baeume) if (b.x > r[0] && b.x < r[2] && b.y > r[1] && b.y < r[3]) obj.push({ typ: 'b', o: b, d: tiefe(b.x, b.y) });
     for (const l of z.lampen) if (l.x > r[0] && l.x < r[2] && l.y > r[1] && l.y < r[3]) obj.push({ typ: 'l', o: l, d: tiefe(l.x, l.y) });
+    for (const pk of parkende(t)) if (pk.x > r[0] && pk.x < r[2] && pk.y > r[1] && pk.y < r[3]) obj.push({ typ: 'p', o: pk, d: tiefe(pk.x, pk.y) });
     for (const n of t.nodes) if (n.f === 'traffic_signals' && !n.on && !(spiel.s.knoten || {})[n.id]?.kreisel) obj.push(...ampeln(n, roads));
   }
   for (const [id, k] of Object.entries(spiel.s.knoten || {})) if (k.ampel) obj.push(...ampeln({ id: Number(id) }, roads)); // gebaute Ampeln
   obj.sort((a, b) => a.d - b.d);
   for (const o of obj) {
     if (o.typ === 'h') { gebaeude(c, o.o, ox, oy); o.bb = gebBox(o.o); }
+    else if (o.typ === 'p') { geparkt(c, o.o, ox, oy); const p = P(o.o.x, o.o.y); o.bb = [p[0] - 3 * S, p[1] - 2 * S, p[0] + 3 * S, p[1] + S]; }
     else if (o.typ === 'l') { laterne(c, o.o, ox, oy); const p = P(o.o.x, o.o.y); o.bb = [p[0] - 2, p[1] - 5.5 * S, p[0] + 3, p[1]]; }
     else if (o.typ === 'b') { baum(c, o.o, ox, oy); const p = P(o.o.x, o.o.y), s = baumSprite(o.o.art, o.o.g); o.bb = [p[0] - s.w / 2, p[1] - s.h, p[0] + s.w / 2, p[1]]; }
   }
-  statisch = { cam: { ...cam }, S, W, H, obj, ampeln: obj.filter(o => o.typ === 'a'), fehlt: fehlt || !!(hoehen && hoehen.ok && hoehen.laden.size) };
+  statisch = { cam: { ...cam }, S, W, H, obj, roads: [...roads.values()], ampeln: obj.filter(o => o.typ === 'a'), fehlt: fehlt || !!(hoehen && hoehen.ok && hoehen.laden.size) };
 }
 // Hänge schattieren: 10-m-Zellen, Licht aus Nordwest; dunkle und helle Flächen halbtransparent
 function schummerung(c, r, ox, oy) {
@@ -447,11 +449,11 @@ function ampelZeichnen(c, a) {
 }
 
 /* ----------------------------- Fahrzeuge ----------------------------- */
-function kiste(c, x, y, hx, hy, l, b, z0, z1, farbe, ox = 0, oy = 0) {
+function kiste(c, x, y, hx, hy, l, b, z0, z1, farbe, ox = 0, oy = 0, dach = null) {
   const nx = -hy, ny = hx, k = [[x - hx * l / 2 - nx * b / 2, y - hy * l / 2 - ny * b / 2], [x + hx * l / 2 - nx * b / 2, y + hy * l / 2 - ny * b / 2], [x + hx * l / 2 + nx * b / 2, y + hy * l / 2 + ny * b / 2], [x - hx * l / 2 + nx * b / 2, y - hy * l / 2 + ny * b / 2]];
   const sx = x, sy = y;
   for (let i = 0; i < 4; i++) wand(c, k[i], k[(i + 1) % 4], z0, z1, farbe, false, sx, sy, ox, oy);
-  c.fillStyle = hell(farbe, 1.18); poly(c, k, z1, ox, oy); c.fill();
+  c.fillStyle = dach || hell(farbe, 1.18); poly(c, k, z1, ox, oy); c.fill();
 }
 function fahrzeug(c, g) {
   const q = at(g.e, g.s), hx = q[2] * g.dir, hy = q[3] * g.dir, off = live.versatz(g), x = q[0] - hy * off, y = q[1] + hx * off;
@@ -459,17 +461,90 @@ function fahrzeug(c, g) {
   return [x, y];
 }
 function fahrzeugInnen(c, g, x, y, hx, hy) {
+  const L = g.len || 4.4, nx = -hy, ny = hx, fein = S >= 3;
+  const pt = (f, q, z) => P(x + hx * f + nx * q, y + hy * f + ny * q, z);
   if (g.mode === 'auto') {
-    const p = P(x, y); c.fillStyle = C.schatten; c.beginPath(); c.ellipse(p[0] + S * .4, p[1] + S * .2, S * 2.4, S * 1.1, 0, 0, Math.PI * 2); c.fill();
-    kiste(c, x, y, hx, hy, 4.3, 1.8, .25, .95, g.farbe);
-    kiste(c, x - hx * .25, y - hy * .25, hx, hy, 2.2, 1.6, .95, 1.45, '#2c3a4c');
-    if (g.bremst) { const b = P(x - hx * 2.15, y - hy * 2.15, .7); c.fillStyle = '#ff3a2a'; c.fillRect(Math.round(b[0]) - 1, Math.round(b[1]), 2, 1); }
+    const B = g.typ === 'bus' ? 2.5 : g.typ === 'transporter' ? 2 : 1.8;
+    const p = P(x, y); c.fillStyle = C.schatten; c.beginPath(); c.ellipse(p[0] + S * .5, p[1] + S * .25, S * L * .62, S * B * .62, 0, 0, Math.PI * 2); c.fill();
+    // Räder
+    if (fein) { c.fillStyle = '#16181a'; for (const f of [-.32, .32]) for (const q of [-.5, .5]) { const w = pt(f * L, q * B * 1.02, .3); c.fillRect(Math.round(w[0]) - 1, Math.round(w[1]) - 1, Math.max(2, Math.round(S * .5)), Math.max(2, Math.round(S * .5))); } }
+    if (g.typ === 'bus') {
+      kiste(c, x, y, hx, hy, L, B, .35, 1.3, g.farbe);
+      kiste(c, x, y, hx, hy, L - .4, B - .05, 1.3, 2.5, '#2b3a4d');            // Fensterband
+      kiste(c, x, y, hx, hy, L, B, 2.5, 3.0, g.farbe, 0, 0, '#f2efe6');       // Dach
+      kiste(c, x + hx * (L / 2 - .3), y + hy * (L / 2 - .3), hx, hy, .6, B, .35, 1.3, '#c0392b'); // Front rot
+    } else if (g.typ === 'transporter') {
+      kiste(c, x - hx * .4, y - hy * .4, hx, hy, L - 1, B, .35, 2.3, g.farbe);
+      kiste(c, x + hx * (L / 2 - .55), y + hy * (L / 2 - .55), hx, hy, 1.1, B * .96, .35, 1.6, g.farbe, 0, 0, '#2c3a4c');
+    } else {
+      const kabL = g.typ === 'klein' ? .55 : .5;
+      kiste(c, x, y, hx, hy, L, B, .3, .95, g.farbe);
+      kiste(c, x - hx * L * .06, y - hy * L * .06, hx, hy, L * kabL, B * .9, .95, 1.45, '#2c3a4c', 0, 0, hell(g.farbe, 1.1)); // Glas, Dach in Wagenfarbe
+    }
+    if (fein) { // Lichter: vorn hell, hinten rot (Bremslicht kräftig)
+      for (const q of [-.35, .35]) { const v = pt(L / 2, q * B, .7), h = pt(-L / 2, q * B, .75); c.fillStyle = '#fff4c8'; c.fillRect(Math.round(v[0]), Math.round(v[1]), 1, 1); c.fillStyle = g.bremst ? '#ff2a1a' : '#8a1d18'; c.fillRect(Math.round(h[0]), Math.round(h[1]), g.bremst ? 2 : 1, 1); }
+    } else if (g.bremst) { const b = pt(-L / 2, 0, .7); c.fillStyle = '#ff3a2a'; c.fillRect(Math.round(b[0]) - 1, Math.round(b[1]), 2, 1); }
   } else {
-    linie(c, [[x - hx * .85, y - hy * .85], [x + hx * .85, y + hy * .85]], 0, .12, '#1c211e', null, 0, 0);
-    kiste(c, x, y, hx, hy, .5, .45, .9, 1.55, g.farbe);
-    const k = P(x, y, 1.85); c.fillStyle = '#e8c39e'; c.fillRect(Math.round(k[0]) - 1, Math.round(k[1]) - 1, Math.max(2, Math.round(S * .45)), Math.max(2, Math.round(S * .45)));
+    // Rad: zwei Räder, Rahmen, Fahrer mit Tretbewegung
+    const tritt = Math.sin(g.s * 3.2) * .18;
+    linie(c, [[x - hx * .85, y - hy * .85], [x + hx * .85, y + hy * .85]], 0, .1, '#1c211e', null, 0, 0);
+    if (fein) for (const f of [-.6, .6]) { const w = pt(f, 0, .35); c.fillStyle = '#1c211e'; c.fillRect(Math.round(w[0]) - 1, Math.round(w[1]) - Math.round(S * .35), Math.max(1, Math.round(S * .2)), Math.max(2, Math.round(S * .7))); }
+    if (fein) { const k1 = pt(tritt, .15, .5), k2 = pt(-tritt, -.15, .5); c.fillStyle = '#2b2f3a'; c.fillRect(Math.round(k1[0]), Math.round(k1[1]) - 1, 1, 2); c.fillRect(Math.round(k2[0]), Math.round(k2[1]) - 1, 1, 2); }
+    kiste(c, x - hx * .1, y - hy * .1, hx, hy, .45, .4, .95, 1.55, g.hemd || g.farbe);
+    const k = P(x - hx * .05, y - hy * .05, 1.8), kg = Math.max(2, Math.round(S * .42)); c.fillStyle = '#e8c39e'; c.fillRect(Math.round(k[0]) - 1, Math.round(k[1]) - 1, kg, kg);
+    if (fein && hashStr('helm' + g.id) < .6) { c.fillStyle = g.farbe; c.fillRect(Math.round(k[0]) - 1, Math.round(k[1]) - 1, kg, Math.max(1, Math.round(kg / 2))); }
   }
+}
+
+/* ----------------------------- Passanten und parkende Autos ----------------------------- */
+// Passanten gehen auf Gehwegen hin und her (rein zur Belebung, keine Simulation)
+function passanten(roads, t) {
+  const out = [];
+  for (const r of roads) {
+    const m = r.m; if (!isRoad(m) || r.len < 25) continue;
+    for (const sd of [1, -1]) {
+      const sw = sd > 0 ? m.sw_r : m.sw_l; if (!sw) continue;
+      const n = Math.floor(r.len / 45 * (m.cls === 'L' || m.cls === 'dorf' ? 1.4 : 1) + hashStr('p' + r.id + sd)); if (!n) continue;
+      const fac = sd > 0 ? m.fac_r : m.fac_l, off = sd * (m.cw + .3 + (fac === 3 ? 1.8 : 0) + sw / 2);
+      for (let i = 0; i < n; i++) {
+        const h = hashStr(r.id + ':' + sd + ':' + i), v = 1.1 + .5 * h, weg = (t * v + h * 997) % (2 * r.len), vor = weg < r.len, s = vor ? weg : 2 * r.len - weg;
+        out.push({ r, s, off: off + (vor ? .35 : -.35) * sd, dir: vor ? 1 : -1, h, farbe: ['#c94a3a', '#2f6fd6', '#e8e2cf', '#3a3d42', '#d9a630', '#3f8a4c', '#8e5bb5'][Math.floor(h * 7)] });
+      }
+    }
+  }
+  return out;
+}
+function passant(c, p) {
+  const e = p.r, q = at({ P: e.P, cum: e._cum || (e._cum = kumuliert(e.P)), L: e.len }, p.s), hx = q[2] * p.dir, hy = q[3] * p.dir;
+  const x = q[0] - q[3] * p.off, y = q[1] + q[2] * p.off, schritt = Math.sin(p.s * 4.5) > 0;
+  const f = P(x, y, 0), k = P(x, y, 1.62), w = Math.max(1, Math.round(S * .35)), hb = Math.max(2, Math.round(S * 1.25 * HZ));
+  c.fillStyle = C.schatten; c.fillRect(Math.round(f[0]), Math.round(f[1]), w + 1, 1);
+  c.fillStyle = '#2b2f3a'; c.fillRect(Math.round(f[0]) + (schritt ? 0 : 1) - 0, Math.round(f[1]) - Math.round(hb * .45), 1, Math.round(hb * .45));
+  c.fillStyle = p.farbe; c.fillRect(Math.round(f[0]), Math.round(f[1]) - hb, w, Math.round(hb * .6));
+  c.fillStyle = '#e8c39e'; c.fillRect(Math.round(k[0]), Math.round(k[1]) - 1, w, Math.max(1, Math.round(S * .3)));
   return [x, y];
+}
+function kumuliert(Pl) { const c = new Float64Array(Pl.length); for (let i = 1; i < Pl.length; i++) c[i] = c[i - 1] + Math.hypot(Pl[i][0] - Pl[i - 1][0], Pl[i][1] - Pl[i - 1][1]); return c; }
+// Parkplätze: Stellplätze im Raster, zu ~65 % belegt (deterministisch)
+function parkende(t) {
+  if (t._park) return t._park;
+  const out = [];
+  for (const a of t.areas) {
+    if (a.k !== 'parkplatz') continue;
+    const ring = a.rings[0]; if (!ring || ring.length < 4) continue;
+    const r = rechteck(ring.slice(0, -1)); if (!r || r.la * r.lb * 4 > 40000) continue;
+    for (let i = -r.la + 1.4; i < r.la - 1.2; i += 2.6) for (let j = -r.lb + 2.6; j < r.lb - 2.4; j += 5.2) {
+      const reihe = Math.round((j + r.lb) / 5.2); if (reihe % 3 === 2) continue; // Fahrgasse
+      const x = r.cx + r.ax * i + r.bx * j, y = r.cy + r.ay * i + r.by * j, h = hashStr('pk' + x.toFixed(1) + y.toFixed(1));
+      if (h > .65 || x < t.x0 || x >= t.x1 || y < t.y0 || y >= t.y1 || !inFlaeche(x, y, a.rings)) continue;
+      out.push({ x, y, hx: r.bx * (h < .3 ? 1 : -1), hy: r.by * (h < .3 ? 1 : -1), farbe: ['#c9473a', '#e8e4da', '#2d5fa8', '#3a3d42', '#9aa3ad', '#d9a630', '#3f8a4c', '#1f2b26'][Math.floor(h * 1000) % 8], typ: h < .1 ? 'klein' : 'pkw' });
+    }
+  }
+  return (t._park = out);
+}
+function geparkt(c, p, ox, oy) {
+  const L = p.typ === 'klein' ? 3.7 : 4.4; gelFix = gel(p.x, p.y);
+  try { kiste(c, p.x, p.y, p.hx, p.hy, L, 1.8, .3, .95, p.farbe, ox, oy); kiste(c, p.x - p.hx * .2, p.y - p.hy * .2, p.hx, p.hy, L * .5, 1.6, .95, 1.45, '#2c3a4c', ox, oy, hell(p.farbe, 1.1)); } finally { gelFix = null; }
 }
 
 /* ----------------------------- Bild ----------------------------- */
@@ -485,15 +560,16 @@ export function zeichne(vctx, opt = {}) {
   const fz = [];
   if (opt.live) for (const g of live.agents) { const q = at(g.e, g.s); fz.push({ g, d: tiefe(q[0], q[1]) }); }
   for (const a of statisch.ampeln) fz.push({ a, d: a.d });
+  if (opt.live && S >= 1.5) for (const p of passanten(statisch.roads, opt.zeit || 0)) { const q = at({ P: p.r.P, cum: p.r._cum || (p.r._cum = kumuliert(p.r.P)), L: p.r.len }, p.s); fz.push({ p, d: tiefe(q[0], q[1]) }); }
   fz.sort((a, b) => a.d - b.d);
   const neu = new Set();
   for (const f of fz) {
     let px, py;
-    if (f.g) { const [x, y] = fahrzeug(lctx, f.g); [px, py] = P(x, y); } else { ampelZeichnen(lctx, f.a); [px, py] = P(f.a.x, f.a.y); }
+    if (f.g) { const [x, y] = fahrzeug(lctx, f.g); [px, py] = P(x, y); } else if (f.p) { const [x, y] = passant(lctx, f.p); [px, py] = P(x, y); } else { ampelZeichnen(lctx, f.a); [px, py] = P(f.a.x, f.a.y); }
     px -= ou; py -= ov; // in Koordinaten der statischen Szene
     for (const o of statisch.obj) if (o.d > f.d + 1 && o.bb && px > o.bb[0] - 6 && px < o.bb[2] + 6 && py > o.bb[1] - 6 && py < o.bb[3] + 8) neu.add(o);
   }
-  if (neu.size) for (const o of [...neu].sort((a, b) => a.d - b.d)) o.typ === 'h' ? gebaeude(lctx, o.o, 0, 0) : o.typ === 'l' ? laterne(lctx, o.o, 0, 0) : baum(lctx, o.o, 0, 0);
+  if (neu.size) for (const o of [...neu].sort((a, b) => a.d - b.d)) o.typ === 'h' ? gebaeude(lctx, o.o, 0, 0) : o.typ === 'l' ? laterne(lctx, o.o, 0, 0) : o.typ === 'p' ? geparkt(lctx, o.o, 0, 0) : baum(lctx, o.o, 0, 0);
   if (opt.marker) marker(lctx, opt.marker);
   vctx.setTransform(1, 0, 0, 1, 0, 0);
   vctx.imageSmoothingEnabled = false;

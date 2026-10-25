@@ -87,7 +87,11 @@ export class Live {
   erlaubt(e, dir, mode) { if (mode === 'auto') return !!e.auto && (!e.oneway || dir === 1); return !!e.rad && (!e.onewayRad || dir === 1); }
   neu(e, dir, mode, s, v) {
     const id = this.next++, h = hashStr('a' + id);
-    const g = { id, e, dir, mode, s, v, v0f: 0.88 + 0.22 * h, nxt: null, warte: 0, farbe: mode === 'auto' ? FARBEN[Math.floor(h * 997) % FARBEN.length] : RADFARBEN[Math.floor(h * 991) % RADFARBEN.length], bremst: false };
+    // Fahrzeugtyp: Bus nur auf Haupt-/Sammelstraßen, sonst Kleinwagen, Pkw, Transporter
+    const h2 = hashStr('t' + id), bus = mode === 'auto' && h2 < .015 && (e.m.cls === 'L' || e.m.cls === 'dorf');
+    const typ = mode === 'rad' ? 'rad' : bus ? 'bus' : h2 < .14 ? 'transporter' : h2 < .38 ? 'klein' : 'pkw';
+    const len = { rad: 1.8, bus: 12, transporter: 5.3, klein: 3.7, pkw: 4.4 }[typ];
+    const g = { id, e, dir, mode, typ, len, s, v, v0f: 0.88 + 0.22 * h, nxt: null, warte: 0, farbe: bus ? '#e9e6dc' : mode === 'auto' ? FARBEN[Math.floor(h * 997) % FARBEN.length] : RADFARBEN[Math.floor(h * 991) % RADFARBEN.length], hemd: RADFARBEN[Math.floor(h2 * 977) % RADFARBEN.length], bremst: false };
     this.agents.push(g); return g;
   }
   ordnen() {
@@ -164,10 +168,10 @@ export class Live {
       if (!g.nxt) g.nxt = this.waehle(g) || 0;
       // Vordermann
       const lane = e.lanes[g.mode + g.dir], i = lane.indexOf(g); let gap = 1e9, vl = vMax;
-      if (i < lane.length - 1) { const l = lane[i + 1]; gap = this.vor(l) - this.vor(g) - P.len; vl = l.v; }
+      if (i < lane.length - 1) { const l = lane[i + 1]; gap = this.vor(l) - this.vor(g) - (l.len + g.len) / 2; vl = l.v; }
       else {
         const r = this.rest(g);
-        if (g.nxt) { const nl = g.nxt[0].lanes[g.mode + g.nxt[1]]; if (nl && nl.length) { const l = nl[0]; gap = r + this.vor(l) - P.len; vl = l.v; } }
+        if (g.nxt) { const nl = g.nxt[0].lanes[g.mode + g.nxt[1]]; if (nl && nl.length) { const l = nl[0]; gap = r + this.vor(l) - (l.len + g.len) / 2; vl = l.v; } }
         // Haltelinie
         if (r < 40) {
           const kn = this.ziel(g), bes = kn.besetzt;
@@ -261,7 +265,7 @@ export class Live {
     for (const g of this.agents) {
       const P = IDM[g.mode], p = at(g.e, g.s), dx = p[2] * g.dir, dy = p[3] * g.dir, off = this.versatz(g);
       const x = p[0] - dy * off, y = p[1] + dx * off; // rechts der Fahrtrichtung (y nach unten)
-      const L = Math.max(P.len, (g.mode === 'auto' ? 5.5 : 3.4) / z), W = Math.max(P.w, (g.mode === 'auto' ? 2.8 : 1.8) / z); // Mindestgröße in Bildpunkten
+      const L = Math.max(g.len || P.len, (g.mode === 'auto' ? 5.5 : 3.4) / z), W = Math.max(P.w, (g.mode === 'auto' ? 2.8 : 1.8) / z); // Mindestgröße in Bildpunkten
       c.save(); c.translate(x, y); c.rotate(Math.atan2(dy, dx));
       if (g.mode === 'auto') {
         c.fillStyle = 'rgba(0,0,0,.35)'; c.fillRect(-L / 2 + .25, -W / 2 + .25, L, W);
