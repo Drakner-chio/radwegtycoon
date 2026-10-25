@@ -35,6 +35,12 @@ const BODEN = { wohngebiet: 'garten', garten: 'garten', park: 'garten', kleingar
 let man, store, spiel, live, hoehen = null;
 const lo = document.createElement('canvas'), lctx = lo.getContext('2d');          // Bild in Pixelauflösung
 const st = document.createElement('canvas'), sctx = st.getContext('2d');          // statische Szene mit Rand
+const lt = document.createElement('canvas'), ltx = lt.getContext('2d');          // Lichter der statischen Szene (Nacht)
+// Tageszeit: Tönung (multiplizieren) und ob Lichter an sind
+export const ZEITEN = { tag: { ton: null, licht: 0 }, morgen: { ton: '#efd9bf', licht: .35 }, abend: { ton: '#d99a72', licht: .6 }, nacht: { ton: '#26304f', licht: 1 } };
+let zeit = 'tag', lichtCtx = null;
+export function setzeZeit(z) { if (ZEITEN[z] && z !== zeit) { zeit = z; statisch = null; } }
+export const tageszeit = () => zeit;
 export const cam = { x: 0, y: 0, zi: 3, rot: 0 };
 let S = ZOOMS[cam.zi], W = 0, H = 0, statisch = null, haeuser = true;
 const MARGE = 160; // Pixel Rand der statischen Szene
@@ -299,6 +305,10 @@ function wand(c, a, b, z0, z1, farbe, fenster, cx, cy, ox, oy) {
       const w = [P(p0[0], p0[1], zu), P(p1[0], p1[1], zu), P(p1[0], p1[1], zo), P(p0[0], p0[1], zo)];
       c.beginPath(); w.forEach((p, i) => i ? c.lineTo(p[0] + ox, p[1] + oy) : c.moveTo(p[0] + ox, p[1] + oy)); c.closePath();
       c.fillStyle = (k + f) % 3 === 0 ? C.glasHell : C.glas; c.fill();
+      if (lichtCtx && hashStr('f' + Math.round(p0[0] * 10) + ':' + Math.round(p0[1] * 10) + ':' + f) < .42 * ZEITEN[zeit].licht + .1) {
+        lichtCtx.beginPath(); w.forEach((p, i) => i ? lichtCtx.lineTo(p[0] + ox, p[1] + oy) : lichtCtx.moveTo(p[0] + ox, p[1] + oy)); lichtCtx.closePath();
+        lichtCtx.fillStyle = hashStr('w' + k + f + p0[0]) < .7 ? '#ffd27a' : '#cfe3ff'; lichtCtx.fill();
+      }
       if (S >= 3) { c.strokeStyle = 'rgba(239,232,216,.75)'; c.lineWidth = 1; c.stroke(); }
     }
   }
@@ -372,7 +382,8 @@ function kachelnIn(r) {
 function baueStatisch() {
   gelFix = null; h0 = 0; const hm = hoehen && hoehen.ok ? hoehen.hoehe(cam.x, cam.y) : null; if (hm !== null) h0 = hm;
   const r = sichtbereich(), { tiles, fehlt } = kachelnIn(r);
-  st.width = W + 2 * MARGE; st.height = H + 2 * MARGE;
+  st.width = W + 2 * MARGE; st.height = H + 2 * MARGE; lt.width = st.width; lt.height = st.height;
+  const nacht = ZEITEN[zeit].licht > 0;
   const c = sctx, ox = MARGE, oy = MARGE;
   c.imageSmoothingEnabled = false;
   c.fillStyle = wiese(C.gras, 2, 21); c.fillRect(0, 0, st.width, st.height);
@@ -404,12 +415,18 @@ function baueStatisch() {
   for (const [id, k] of Object.entries(spiel.s.knoten || {})) if (k.ampel) obj.push(...ampeln({ id: Number(id) }, roads)); // gebaute Ampeln
   obj.sort((a, b) => a.d - b.d);
   for (const o of obj) {
-    if (o.typ === 'h') { gebaeude(c, o.o, ox, oy); o.bb = gebBox(o.o); }
+    if (nacht) { // Verdeckung der Lichter: Objekt-Silhouette aus der Lichtebene löschen
+      ltx.globalCompositeOperation = 'destination-out';
+      if (o.typ === 'h') { gebaeude(ltx, o.o, ox, oy); } else if (o.typ === 'b') baum(ltx, o.o, ox, oy);
+      ltx.globalCompositeOperation = 'source-over';
+      lichtCtx = o.typ === 'h' ? ltx : null;
+    }
+    if (o.typ === 'h') { gebaeude(c, o.o, ox, oy); o.bb = gebBox(o.o); lichtCtx = null; }
     else if (o.typ === 'p') { geparkt(c, o.o, ox, oy); const p = P(o.o.x, o.o.y); o.bb = [p[0] - 3 * S, p[1] - 2 * S, p[0] + 3 * S, p[1] + S]; }
     else if (o.typ === 'l') { laterne(c, o.o, ox, oy); const p = P(o.o.x, o.o.y); o.bb = [p[0] - 2, p[1] - 5.5 * S, p[0] + 3, p[1]]; }
     else if (o.typ === 'b') { baum(c, o.o, ox, oy); const p = P(o.o.x, o.o.y), s = baumSprite(o.o.art, o.o.g); o.bb = [p[0] - s.w / 2, p[1] - s.h, p[0] + s.w / 2, p[1]]; }
   }
-  statisch = { cam: { ...cam }, S, W, H, obj, roads: [...roads.values()], ampeln: obj.filter(o => o.typ === 'a'), fehlt: fehlt || !!(hoehen && hoehen.ok && hoehen.laden.size) };
+  statisch = { cam: { ...cam }, S, W, H, obj, roads: [...roads.values()], zeit, lampen: obj.filter(o => o.typ === 'l').map(o => o.o), ampeln: obj.filter(o => o.typ === 'a'), fehlt: fehlt || !!(hoehen && hoehen.ok && hoehen.laden.size) };
 }
 // Hänge schattieren: 10-m-Zellen, Licht aus Nordwest; dunkle und helle Flächen halbtransparent
 function schummerung(c, r, ox, oy) {
@@ -549,7 +566,7 @@ function geparkt(c, p, ox, oy) {
 
 /* ----------------------------- Bild ----------------------------- */
 export function zeichne(vctx, opt = {}) {
-  if (!statisch || statisch.S !== S || statisch.cam.rot !== cam.rot || statisch.W !== W || statisch.H !== H) baueStatisch();
+  if (!statisch || statisch.S !== S || statisch.cam.rot !== cam.rot || statisch.W !== W || statisch.H !== H || statisch.zeit !== zeit) baueStatisch();
   // Verschiebung gegenüber der statischen Szene (ganze Pixel)
   const versatz = () => { const a = P(statisch.cam.x, statisch.cam.y); return [Math.round(a[0] - W / 2), Math.round(a[1] - H / 2)]; };
   let [ou, ov] = versatz();
@@ -570,6 +587,7 @@ export function zeichne(vctx, opt = {}) {
     for (const o of statisch.obj) if (o.d > f.d + 1 && o.bb && px > o.bb[0] - 6 && px < o.bb[2] + 6 && py > o.bb[1] - 6 && py < o.bb[3] + 8) neu.add(o);
   }
   if (neu.size) for (const o of [...neu].sort((a, b) => a.d - b.d)) o.typ === 'h' ? gebaeude(lctx, o.o, 0, 0) : o.typ === 'l' ? laterne(lctx, o.o, 0, 0) : o.typ === 'p' ? geparkt(lctx, o.o, 0, 0) : baum(lctx, o.o, 0, 0);
+  licht(ou, ov, opt);
   if (opt.marker) marker(lctx, opt.marker);
   vctx.setTransform(1, 0, 0, 1, 0, 0);
   vctx.imageSmoothingEnabled = false;
@@ -577,6 +595,30 @@ export function zeichne(vctx, opt = {}) {
   return statisch.fehlt;
 }
 const dpr = () => window.devicePixelRatio || 1;
+
+// Tageszeit: ganzes Bild tönen, dann Fenster, Laternen und Scheinwerfer aufhellen
+function licht(ou, ov, opt) {
+  const Z = ZEITEN[zeit]; if (!Z.ton) return;
+  lctx.save();
+  lctx.globalCompositeOperation = 'multiply'; lctx.fillStyle = Z.ton; lctx.fillRect(0, 0, W, H);
+  if (!Z.licht) { lctx.restore(); return; }
+  lctx.globalCompositeOperation = 'source-over'; lctx.globalAlpha = Math.min(1, .35 + Z.licht); lctx.drawImage(lt, -MARGE + ou, -MARGE + ov); lctx.globalAlpha = 1;
+  lctx.globalCompositeOperation = 'lighter';
+  const glanz = (x, y, r, a, farbe = '255,214,140') => { const g = lctx.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, `rgba(${farbe},${a})`); g.addColorStop(1, `rgba(${farbe},0)`); lctx.fillStyle = g; lctx.fillRect(x - r, y - r, 2 * r, 2 * r); };
+  for (const l of statisch.lampen) {
+    const b = P(l.x, l.y), k = P(l.x, l.y, 5.2); if (b[0] < -40 || b[0] > W + 40 || b[1] < -40 || b[1] > H + 60) continue;
+    lctx.save(); lctx.translate(b[0], b[1]); lctx.scale(1, .5); glanz(0, 0, 9 * S, .28 * Z.licht); lctx.restore();
+    glanz(k[0], k[1], 2.2 * S, .6 * Z.licht, '255,236,190');
+  }
+  if (opt.live) for (const g of live.agents) {
+    if (g.mode !== 'auto') continue;
+    const q = at(g.e, g.s), hx = q[2] * g.dir, hy = q[3] * g.dir, off = live.versatz(g), x = q[0] - hy * off, y = q[1] + hx * off, L = g.len || 4.4;
+    gelFix = gel(x, y); const v = P(x + hx * (L / 2 + 5), y + hy * (L / 2 + 5), .2), h = P(x - hx * L / 2, y - hy * L / 2, .7); gelFix = null;
+    lctx.save(); lctx.translate(v[0], v[1]); lctx.scale(1, .55); glanz(0, 0, 5 * S, .32 * Z.licht, '255,240,200'); lctx.restore();
+    glanz(h[0], h[1], 1.2 * S, (g.bremst ? .9 : .4) * Z.licht, '255,40,30');
+  }
+  lctx.restore();
+}
 
 /* ----------------------------- Markierungen (Auswahl, Werkzeuge) ----------------------------- */
 // { P: Polylinie, breite (m), farbe, strich } oder { x, y, r (m), farbe, fill }

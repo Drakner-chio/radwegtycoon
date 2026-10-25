@@ -892,6 +892,10 @@ function isoRad(dir) { // ein Rastschritt pro Mausrad-Geste
 $('t-iso').onclick = () => modus === 'iso' ? zuKarte() : zuIso(cam.x + vw / cam.z / 2, cam.y + vh / cam.z / 2);
 $('r-l').onclick = () => { Iso.drehen(-1); dirty = true; };
 $('r-r').onclick = () => { Iso.drehen(1); dirty = true; };
+const ZEIT_FOLGE = ['tag', 'abend', 'nacht', 'morgen'], ZEIT_TEXT = { tag: '☀ Tag', abend: '🌇 Abend', nacht: '🌙 Nacht', morgen: '🌅 Morgen' };
+function setZeit(z) { Iso.setzeZeit(z); $('t-zeit').textContent = ZEIT_TEXT[z]; try { localStorage.setItem('rtc-zeit', z); } catch (e) {} dirty = true; }
+$('t-zeit').onclick = () => setZeit(ZEIT_FOLGE[(ZEIT_FOLGE.indexOf(Iso.tageszeit()) + 1) % 4]);
+try { const z = localStorage.getItem('rtc-zeit'); if (z) setZeit(z); } catch (e) {}
 $('t-haus').onclick = () => { const an = $('t-haus').getAttribute('aria-pressed') !== 'true'; $('t-haus').setAttribute('aria-pressed', an); Iso.haeuserZeigen(!an); dirty = true; };
 
 const pointers = new Map(); let down = null, moved = false, pinch = null;
@@ -953,6 +957,7 @@ window.addEventListener('keydown', e => {
   if (k === 'backspace' && werkzeug !== 'auswahl') { e.preventDefault(); werkzeugZurueck(); return; }
   if (modus === 'iso' && (k === 'q' || k === 'e')) { Iso.drehen(k === 'q' ? -1 : 1); dirty = true; return; }
   if (modus === 'iso' && k === 'h') { $('t-haus').click(); return; }
+  if (modus === 'iso' && k === 'u') { $('t-zeit').click(); return; }
   if (k === 'z') setOverlay('cond'); if (k === 's') setOverlay('risk'); if (k === 'r') setOverlay('net'); if (k === 't') setOverlay('route'); if (k === 'v') setOverlay('verkehr'); if (k === 'f') setOverlay('zuf'); if (k === 'l') setLive(!liveAn); if (k === 'b') setOverlay('steig'); if (k === 'g') setRelief(!reliefAn); if (k === 'i') $('t-iso').click(); if (k === 'n') $('t-names').click();
   if (k === '+' || k === '=') { radT = 0; $('z-in').click(); } if (k === '-') { radT = 0; $('z-out').click(); }
   const pan = 120 / pxProM();
