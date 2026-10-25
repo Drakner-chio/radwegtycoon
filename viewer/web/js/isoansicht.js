@@ -653,6 +653,7 @@ export function zeichne(vctx, opt = {}) {
   }
   if (neu.size) for (const o of [...neu].sort((a, b) => a.d - b.d)) o.typ === 'h' ? gebaeude(lctx, o.o, 0, 0) : o.typ === 'l' ? laterne(lctx, o.o, 0, 0) : o.typ === 'p' ? geparkt(lctx, o.o, 0, 0) : baum(lctx, o.o, 0, 0);
   licht(ou, ov, opt);
+  if (opt.gebiet) gebietRand(opt.gebiet);
   if (opt.marker) marker(lctx, opt.marker);
   vctx.setTransform(1, 0, 0, 1, 0, 0);
   vctx.imageSmoothingEnabled = false;
@@ -682,6 +683,15 @@ function licht(ou, ov, opt) {
     lctx.save(); lctx.translate(v[0], v[1]); lctx.scale(1, .55); glanz(0, 0, 5 * S, .32 * Z.licht, '255,240,200'); lctx.restore();
     glanz(h[0], h[1], 1.2 * S, (g.bremst ? .9 : .4) * Z.licht, '255,40,30');
   }
+  lctx.restore();
+}
+
+// Spielgebiet: außerhalb abdunkeln, Rand als gestrichelte Linie über dem Gelände
+function gebietRand(g) {
+  const pts = []; for (let i = 0; i <= 96; i++) { const w = i / 96 * Math.PI * 2; pts.push(P(g.x + Math.cos(w) * g.r, g.y + Math.sin(w) * g.r)); }
+  lctx.save(); lctx.beginPath(); lctx.rect(0, 0, W, H); pts.forEach((p, i) => i ? lctx.lineTo(p[0], p[1]) : lctx.moveTo(p[0], p[1])); lctx.closePath();
+  lctx.fillStyle = 'rgba(8,12,10,.5)'; lctx.fill('evenodd');
+  lctx.beginPath(); pts.forEach((p, i) => i ? lctx.lineTo(p[0], p[1]) : lctx.moveTo(p[0], p[1])); lctx.setLineDash([4, 3]); lctx.lineWidth = 1.5; lctx.strokeStyle = 'rgba(255,255,255,.8)'; lctx.stroke();
   lctx.restore();
 }
 

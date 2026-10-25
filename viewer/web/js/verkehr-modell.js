@@ -44,7 +44,8 @@ export async function ladeJsonGz(url) {
 export const radAnteil = (L, q, p = PARAM.rad) => Math.min(p.max, p.basis / (1 + Math.pow(L / p.halbKm, p.form)) * Math.exp(-p.qStrafe * (q - p.qRef)));
 
 // faktor[2e] / faktor[2e+1]: gefühlte Meter je Meter in Richtung a->b bzw. b->a (Infinity = nicht befahrbar)
-export function rechne(G, faktor, fortschritt, von = 0, bis = G.nZ, strafe = null) {
+// maske[z] = 0: Zelle liegt außerhalb des Spielgebiets (weder Start noch Ziel)
+export function rechne(G, faktor, fortschritt, von = 0, bis = G.nZ, strafe = null, maske = null) {
   const P = PARAM, { nK, nZ, start, adjE, adjN, len, zk, zx, zy } = G;
   // Zielgewichte und Nenner des Schwerkraftmodells
   const W = new Float64Array(nZ);
@@ -62,12 +63,13 @@ export function rechne(G, faktor, fortschritt, von = 0, bis = G.nZ, strafe = nul
   let summeWege = 0, summeRad = 0, summeRadKm = 0;
 
   for (let o = von; o < bis; o++) {
+    if (maske && !maske[o]) continue;
     const T = G.ew[o] * P.wegeJeEw;
     if (T < 0.5) continue;
     // Schwerkraft: Anteile je Ziel
     let den = 0;
     for (let d = 0; d < nZ; d++) {
-      g[d] = 0; if (d === o || W[d] <= 0) continue;
+      g[d] = 0; if (d === o || W[d] <= 0 || (maske && !maske[d])) continue;
       const dx = zx[d] - zx[o], dy = zy[d] - zy[o], d2 = dx * dx + dy * dy;
       if (d2 > maxD2) continue;
       dKm[d] = Math.sqrt(d2) / 1000; g[d] = W[d] * Math.exp(-dKm[d] / P.abfallKm); den += g[d];

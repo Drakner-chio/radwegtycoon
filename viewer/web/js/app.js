@@ -6,6 +6,7 @@ import { Verkehr } from './verkehr.js';
 import { Live } from './live.js';
 import { Hoehen } from './hoehe.js';
 import * as Iso from './isoansicht.js';
+import * as Speicher from './speicher.js';
 import { Painter, buildPatterns, hashStr, stroke, offsetLine, bikeValues, condColor, riskColor, drawCrossSection, clamp } from './render.js';
 
 const $ = id => document.getElementById(id);
@@ -27,6 +28,7 @@ const params = new URLSearchParams(location.search);
 const region = params.get('region') || 'lippe';
 const base = params.get('karte') || `daten/${region}/karte/`;
 
+let wahlGebiet = null; // Kreis während der Gebietswahl
 let man, store, spiel, verkehr = null, hoehen = null, reliefAn = true, modus = 'karte';
 const pxProM = () => modus === 'iso' ? Iso.pxProM() : cam.z;            // Bildschirmpunkte je Meter in der aktiven Ansicht
 const weltPunkt = p => modus === 'iso' ? Iso.weltVon(p.x, p.y) : [cam.x + p.x / cam.z, cam.y + p.y / cam.z];
@@ -72,6 +74,8 @@ async function start() {
   else { cam.z = Math.min(vw / W, vh / H) * 0.95; cam.x = W / 2 - vw / cam.z / 2; cam.y = H / 2 - vh / cam.z / 2; }
   clampCam();
   $('loading').hidden = true;
+  $('spielname').textContent = spiel.s.name || 'Mein Radnetz';
+  zeigeMenu(hatAutosave() ? 'start' : 'start');
   if (params.get('ansicht') === 'iso') { const x = +params.get('x'), y = +params.get('y'); zuIso(x || cam.x + vw / cam.z / 2, y || cam.y + vh / cam.z / 2); }
   inspect(null);
   requestAnimationFrame(frame);
@@ -235,6 +239,7 @@ function draw() {
   }
   vctx.setTransform(s, 0, 0, s, -cam.x * s, -cam.y * s);
   drawMask();
+  zeichneGebietKarte();
   zeichneKnotenBauten();
   if (liveAktiv()) live.zeichnen(vctx, cam.z);
   if (overlay) drawOverlay(top);
@@ -379,6 +384,7 @@ function setupVerkehr() {
   if (!man.netz) { $('verkehr').innerHTML = '<div class="note">Für diese Karte gibt es noch kein Verkehrsnetz. Pipeline neu laufen lassen (Schritt „netz“).</div>'; return; }
   verkehr = new Verkehr(base, man, id => spiel.patchFor(id));
   verkehr.knotenBau = id => spiel.knotenFor(id);
+  verkehr.gebiet = spiel.s.gebiet;
   verkehr.onStatus = t => { $('vk-status').textContent = t; };
   verkehr.onErgebnis = (erg, vorher) => { renderVerkehr(erg, vorher);
     if (wirkungOrt && vorher) { const da = (erg.anteil - vorher.anteil) * 100, dz = erg.zufrieden - vorher.zufrieden; setTimeout(((o) => () => schwebend(o.x, o.y, `${pkt(da)} % Rad · ${pkt(dz)} Zufr.`, da >= 0 ? 'gut' : 'schlecht'))(wirkungOrt), 700); wirkungOrt = null; } ortAktuell = null; updateSurvey(true); if (overlay === 'verkehr' || overlay === 'zuf') dirty = true; if (selected) inspect(selected); };
@@ -389,7 +395,7 @@ const pkt = v => (v >= 0 ? '+' : '−') + fmt(Math.abs(v), 1);
 function renderVerkehr(e, v) {
   const d = v ? ` <span class="${e.anteil >= v.anteil ? 'up' : 'down'}">${pkt((e.anteil - v.anteil) * 100)}</span>` : '';
   const dz = v ? ` <span class="${e.zufrieden >= v.zufrieden ? 'up' : 'down'}">${pkt(e.zufrieden - v.zufrieden)}</span>` : '';
-  $('verkehr').innerHTML = `<dl class="kv"><dt>Radanteil</dt><dd>${fmt(e.anteil * 100, 1)} %${d}</dd><dt>Radfahrten am Tag</dt><dd>${fmt(e.rad)}</dd><dt>Rad-km am Tag</dt><dd>${fmt(e.radKm)}</dd><dt>Zufriedenheit</dt><dd>${fmt(e.zufrieden, 1)}${dz}</dd><dt>Einwohner (geschätzt)</dt><dd>${fmt(verkehr.ewSumme)}</dd></dl>`;
+  $('verkehr').innerHTML = `<dl class="kv"><dt>Radanteil</dt><dd>${fmt(e.anteil * 100, 1)} %${d}</dd><dt>Radfahrten am Tag</dt><dd>${fmt(e.rad)}</dd><dt>Rad-km am Tag</dt><dd>${fmt(e.radKm)}</dd><dt>Zufriedenheit</dt><dd>${fmt(e.zufrieden, 1)}${dz}</dd><dt>Einwohner im Spielgebiet</dt><dd>${fmt(e.ew || verkehr.ewSumme)}</dd></dl>`;
   $('vk-status').textContent = `berechnet in ${fmt(e.ms / 1000, 1)} s · Werte sind Modellschätzungen`;
   $('top-anteil').innerHTML = `${fmt(e.anteil * 100, 1)} %${v ? ` <span class="${e.anteil >= v.anteil ? 'up' : 'down'}" style="font-size:12px">${pkt((e.anteil - v.anteil) * 100)}</span>` : ''}`;
   $('top-zuf').innerHTML = `${fmt(e.zufrieden, 0)}${v ? ` <span class="${e.zufrieden >= v.zufrieden ? 'up' : 'down'}" style="font-size:12px">${pkt(e.zufrieden - v.zufrieden)}</span>` : ''}`;
@@ -522,6 +528,7 @@ function inspect(r) {
 const eur = v => fmt(v) + ' €';
 let zugModus = false, zugSel = [], multi = [];
 function bauPanel(r) {
+  if (!imGebietR(r)) return '<div class="note">Außerhalb deines Spielgebiets – hier kannst du nicht bauen.</div>';
   const k = spiel.s.kanten[r.id];
   let h = '<div class="bau"><div class="lbl" style="margin:8px 0 4px">Ausbauen</div>';
   if (k) { const v0 = bikeValues(k.m0), v1 = bikeValues(r.m); h += `<div class="chip good" style="display:inline-block;margin-bottom:4px">Ausgebaut · Risiko ${Math.round(v0.risk * 100)} → ${Math.round(v1.risk * 100)}</div>`; }
@@ -553,6 +560,7 @@ function bauOrt(e) {
   if (e.knoten && e.knoten.length) return knotenPos(e.knoten[0]);
   return null;
 }
+function zeigeHinweis(t) { $('bau-msg').textContent = t; const d = document.createElement('div'); d.className = 'toast'; d.textContent = t; $('floats').appendChild(d); setTimeout(() => d.remove(), 2600); }
 function schwebend(x, y, text, art) {
   const p = modus === 'iso' ? Iso.bildVon(x, y) : [(x - cam.x) * cam.z, (y - cam.y) * cam.z];
   if (p[0] < 0 || p[1] < 0 || p[0] > vw || p[1] > vh) return;
@@ -592,7 +600,7 @@ function setupSpiel() {
   $('inspect').addEventListener('change', e => { if (e.target.id === 'zug') { zugModus = e.target.checked; if (selected) inspect(selected); dirty = true; } });
   $('undo').onclick = () => { const e = spiel.rueckgaengig(); if (e) nachBau('Rückgängig: ' + ((AUSBAU.find(a => a.id === e.a) || KNOTEN.find(a => a.id === e.a))?.name || '') + ' (' + eur(e.kosten) + ' zurück)'); };
   $('jahr-ende').onclick = () => { if (!verkehr || !verkehr.erg || verkehr.laeuft) return; const ein = spiel.jahrAbschliessen(verkehr.erg); $('bau-msg').textContent = `Jahr ${spiel.s.jahr - 1} abgeschlossen: ${eur(ein)} Einnahmen.`; renderSpiel(); };
-  $('neu').onclick = () => { if (!$('neu').dataset.sicher) { $('neu').dataset.sicher = 1; $('neu').textContent = 'Wirklich? Nochmal klicken'; setTimeout(() => { delete $('neu').dataset.sicher; $('neu').textContent = 'Neues Spiel'; }, 3000); return; } spiel.neu(); nachBau('Neues Spiel gestartet.'); };
+  $('neu').onclick = () => zeigeMenu('neu');
   renderSpiel();
 }
 
@@ -647,7 +655,9 @@ function surveyKopf(titel, st, extra) {
 }
 function updateSurvey(force) {
   const now = performance.now(); if (!force && now - ortT < 400) return; ortT = now;
-  const o = findeOrt();
+  let o = findeOrt();
+  const g = spiel && spiel.s.gebiet;
+  if (!o && g && g.r <= 5000) o = { name: spiel.s.name || 'Spielgebiet', x: g.x, y: g.y, R: g.r, e: g.x + man.bbox_utm[0], n: man.bbox_utm[3] - g.y, gebiet: true };
   if (!o) {
     if (ortAktuell !== 'region') { ortAktuell = 'region'; $('survey-ort').textContent = 'ganze Region'; $('survey').innerHTML = regionSurvey(); }
     return;
@@ -657,7 +667,7 @@ function updateSurvey(force) {
   const sig = o.name + o.e + ':' + da + ':' + spiel.s.log.length + ':' + (verkehr && verkehr.erg ? verkehr.erg.t : 0);
   if (!force && sig === ortAktuell) return; ortAktuell = sig;
   $('survey-ort').textContent = o.name;
-  const hinweis = da < soll ? `<div class="note">Lade Ortsdaten … ${da}/${soll} Kacheln</div>` : `<div class="note">Umkreis ${fmt(o.R / 1000, 1)} km um den Ortsmittelpunkt, Ausbauten eingerechnet.</div>`;
+  const hinweis = da < soll ? `<div class="note">Lade Ortsdaten … ${da}/${soll} Kacheln</div>` : `<div class="note">${o.gebiet ? 'Ganzes Spielgebiet' : `Umkreis ${fmt(o.R / 1000, 1)} km um den Ortsmittelpunkt`}, Ausbauten eingerechnet.</div>`;
   const vkHtml = vk && vk.wege ? `<dl class="kv"><dt>Radanteil (Modell)</dt><dd>${fmt(vk.anteil * 100, 1)} %</dd><dt>Zufriedenheit</dt><dd>${fmt(vk.zufrieden, 1)}</dd><dt>Einwohner (geschätzt)</dt><dd>${fmt(vk.ew)}</dd></dl>` : '';
   $('survey').innerHTML = surveyKopf(o.name, st, hinweis) + vkHtml + surveyBars(st);
 }
@@ -730,6 +740,7 @@ function aktivesNetz() {
   if (sig !== netzSig) { netzCache = lokalesNetz(tiles); netzSig = sig; }
   return netzCache;
 }
+function imGebietR(r) { const q = r.P[Math.floor(r.P.length / 2)]; return spiel.imGebiet(q[0], q[1]); }
 const erlaubtFuer = a => a.art === 'weg' ? r => !isRoad(r.m) && r.m.cls !== 'treppe' : r => isRoad(r.m) && r.m.cls !== 'auto';
 function strecke(mitVorschau) {
   const out = [], seen = new Set();
@@ -750,7 +761,7 @@ function renderToolpanel() {
   tp.hidden = false; $('tp-icon').setAttribute('href', '#i-' + werkzeug);
   const nah = pxProM() >= .22;
   if (ausbauVon(werkzeug)) {
-    const a = ausbauVon(werkzeug), alle = strecke(false), pass = alle.filter(r => a.gilt(r.m)), c = gesamt(a, pass), km = alle.reduce((s2, r) => s2 + r.len, 0) / 1000;
+    const a = ausbauVon(werkzeug), alle = strecke(false), pass = alle.filter(r => a.gilt(r.m) && imGebietR(r)), c = gesamt(a, pass), km = alle.reduce((s2, r) => s2 + r.len, 0) / 1000;
     $('tp-name').textContent = a.name; $('tp-info').textContent = a.info;
     const hinweis = !nah ? 'Zum Bauen bis zur Ortsansicht heranzoomen.' : !wege.length ? 'Start anklicken (Straße bzw. Weg).' : 'Ziel oder Zwischenpunkt anklicken · Enter oder Doppelklick baut · Rücktaste nimmt den letzten Punkt zurück.';
     $('tp-body').innerHTML = `<div class="k"><span>Abschnitte</span><b>${alle.length}</b></div><div class="k"><span>Länge</span><b>${fmt(km, 2)} km</b></div>
@@ -772,13 +783,14 @@ function werkzeugKlick(wx, wy) {
   const netz = aktivesNetz();
   if (ausbauVon(werkzeug)) {
     const a = ausbauVon(werkzeug), r = pickRoad(wx, wy), ok = erlaubtFuer(a);
+    if (r && !imGebietR(r)) { zeigeHinweis('Außerhalb deines Spielgebiets.'); return; }
     if (!r || !ok(r)) { $('bau-msg').textContent = a.art === 'weg' ? 'Dieses Werkzeug baut Wege, keine Straßen.' : 'Dieses Werkzeug baut Straßen, keine Wege.'; return; }
     const n = netz.kanten.get(r.id) || r;
     if (!wege.length) wege.push([n]);
     else { const p = pfad(netz, letzte(), n, ok); if (p && p.length > 1) wege.push(p.slice(1)); else if (!p) $('bau-msg').textContent = 'Keine durchgehende Verbindung gefunden.'; }
     vorschau = null; vorschauVon = '';
   } else {
-    const k = naechsteKreuzung(netz, wx, wy, 30 / pxProM() + 8); kSel = k;
+    const k = naechsteKreuzung(netz, wx, wy, 30 / pxProM() + 8); kSel = k && spiel.imGebiet(k.x, k.y) ? k : null; if (k && !kSel) zeigeHinweis('Außerhalb deines Spielgebiets.');
   }
   renderToolpanel(); dirty = true;
 }
@@ -797,7 +809,7 @@ function werkzeugHover(wx, wy) {
 }
 function werkzeugBauen() {
   if (ausbauVon(werkzeug)) {
-    const a = ausbauVon(werkzeug), alle = strecke(false); if (!alle.length) return;
+    const a = ausbauVon(werkzeug), alle = strecke(false).filter(imGebietR); if (!alle.length) return;
     const namen = [...new Set(alle.map(x => x.m.name || x.m.ref).filter(Boolean))];
     const e = spiel.bauen(a, alle, namen.length === 1 ? namen[0] : namen.length ? namen.length + ' Straßen' : '');
     if (!e) { $('bau-msg').textContent = 'Nicht genug Geld oder nichts Passendes ausgewählt.'; return; }
@@ -890,6 +902,14 @@ function zeichneBaustellenKarte() {
   vctx.lineCap = 'butt';
   for (const r of rs) for (const sd of [1, -1]) stroke(vctx, offsetLine(r.P, sd * (r.half + .6)), Math.max(.5, 2.5 / cam.z), '#ff8a1e', [2, 1.5]);
 }
+// Spielgebiet: außerhalb abdunkeln, Rand gestrichelt (Karte); in der Spielansicht übernimmt das isoansicht.js
+function zeichneGebietKarte() {
+  const g = wahlGebiet || (spiel && spiel.s.gebiet); if (!g) return;
+  vctx.save(); vctx.beginPath(); vctx.rect(cam.x - 10, cam.y - 10, vw / cam.z + 20, vh / cam.z + 20); vctx.arc(g.x, g.y, g.r, 0, Math.PI * 2, true);
+  vctx.fillStyle = 'rgba(8,12,10,.55)'; vctx.fill();
+  vctx.beginPath(); vctx.arc(g.x, g.y, g.r, 0, Math.PI * 2); vctx.lineWidth = 2.5 / cam.z; vctx.setLineDash([8 / cam.z, 6 / cam.z]); vctx.strokeStyle = wahlGebiet ? '#5ccf8a' : 'rgba(255,255,255,.75)'; vctx.stroke(); vctx.setLineDash([]);
+  vctx.restore();
+}
 function zeichneIso() {
   const m = [];
   const umriss = (r, farbe, fill) => { if (fill) m.push({ P: r.P, breite: r.half * 2 + 1, farbe: fill }); for (const sd of [1, -1]) m.push({ P: offsetLine(r.P, sd * (r.half + .6)), breite: .45, farbe }); };
@@ -897,7 +917,7 @@ function zeichneIso() {
   for (const z of zugSel) if (z !== selected) umriss(z, 'rgba(255,226,90,.7)', 'rgba(255,226,90,.12)');
   if (selected) umriss(selected, '#ffe25a', 'rgba(255,226,90,.18)');
   if (werkzeug !== 'auswahl') m.push(...werkzeugMarker());
-  const fehlt = Iso.zeichne(vctx, { live: liveAktiv(), marker: m, zeit: performance.now() / 1000, baustellen: aktiveBaustellen() });
+  const fehlt = Iso.zeichne(vctx, { live: liveAktiv(), marker: m, zeit: performance.now() / 1000, baustellen: aktiveBaustellen(), gebiet: spiel.s.gebiet });
   // Kamera der Karte mitführen (Rückweg, gespeicherte Position)
   cam.x = Iso.cam.x - vw / cam.z / 2; cam.y = Iso.cam.y - vh / cam.z / 2;
   $('lvl').textContent = `Spielansicht · ${Iso.blick()} · ${fmt(Iso.pxProM(), 0)} px/m`;
@@ -931,6 +951,115 @@ $('t-zeit').onclick = () => setZeit(ZEIT_FOLGE[(ZEIT_FOLGE.indexOf(Iso.tageszeit
 try { const z = localStorage.getItem('rtc-zeit'); if (z) setZeit(z); } catch (e) {}
 $('t-haus').onclick = () => { const an = $('t-haus').getAttribute('aria-pressed') !== 'true'; $('t-haus').setAttribute('aria-pressed', an); Iso.haeuserZeigen(!an); dirty = true; };
 
+/* ----------------------------- Hauptmenü, Gebietswahl, Spielstände ----------------------------- */
+const menuOffen = () => !$('menu').hidden;
+let menuArt = 'start';
+const datum = t => new Date(t).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+const gebietText = g => g ? `Kreis ${fmt(g.r / 1000, g.r < 10000 ? 1 : 0)} km` : 'ganze Region';
+function hatAutosave() { return !!(spiel && (spiel.s.name || spiel.s.log.length || Object.keys(spiel.s.kanten).length)); }
+function zeigeMenu(art = 'start') {
+  menuArt = art; $('menu').hidden = false; $('menu-region').textContent = man ? `Region: ${man.name}` : '';
+  const k = $('menu-inhalt'), btn = (id, titel, sub, primary) => `<button class="menu-btn${primary ? ' primary' : ''}" data-m="${id}"><span>${titel}${sub ? `<small>${sub}</small>` : ''}</span><span class="pfeil">›</span></button>`;
+  const s = spiel ? spiel.s : null;
+  if (art === 'start' || art === 'pause') {
+    const weiter = hatAutosave() ? btn('weiter', art === 'pause' ? 'Weiterspielen' : 'Weiterspielen', `${esc(s.name || 'Mein Radnetz')} · Jahr ${s.jahr} · ${eur(s.budget)} · ${gebietText(s.gebiet)}`, true) : '';
+    k.innerHTML = `<div class="menu-liste">${weiter}${btn('neu', 'Neues Spiel', 'Spielgebiet auf der Karte wählen', !weiter)}${art === 'pause' ? btn('speichern', 'Speichern', 'Auf einen von sechs Speicherplätzen') : ''}${btn('laden', 'Spiel laden', 'Speicherplätze und Datei-Import')}${btn('hilfe', 'Steuerung', 'Tasten und Werkzeuge')}</div>`;
+  } else if (art === 'neu') {
+    k.innerHTML = `<h2>Neues Spiel</h2><div class="feld"><span class="lbl">Name</span><input id="neu-name" value="${esc((s && s.name) ? 'Neues Radnetz' : 'Mein Radnetz')}" maxlength="40"></div>
+      <div class="menu-liste">${btn('wahl', 'Spielgebiet wählen', 'Kreis auf der Karte setzen, Radius von 0,5 km bis ganze Region', true)}${btn('ganz', 'Ganze Region spielen', man ? man.name : '')}</div>
+      <div class="note">Ein laufendes Spiel bleibt nur erhalten, wenn du es vorher speicherst.</div><button class="btn zurueck" data-m="${hatAutosave() ? 'pause' : 'start'}">Zurück</button>`;
+  } else if (art === 'laden' || art === 'speichern') {
+    const L = Speicher.liste(man.slug);
+    k.innerHTML = `<h2>${art === 'laden' ? 'Spiel laden' : 'Spiel speichern'}</h2>${art === 'speichern' ? `<div class="feld"><span class="lbl">Name des Spielstands</span><input id="sp-name" value="${esc(s.name || 'Mein Radnetz')}" maxlength="40"></div>` : ''}
+      <div class="menu-liste">${L.map(p => `<div class="slot${p.leer ? ' leer' : ''}"><div><b>Platz ${p.platz}${p.leer ? '' : ' · ' + esc(p.name)}</b></div>
+        <div class="meta">${p.leer ? 'leer' : `Jahr ${p.jahr} · ${eur(p.budget)} · ${gebietText(p.gebiet)}${p.anteil != null ? ` · Rad ${fmt(p.anteil * 100, 1)} %` : ''} · ${datum(p.datum)}`}</div>
+        <div class="aktionen">${art === 'laden' ? (p.leer ? '' : `<button class="btn primary" data-laden="${p.platz}">Laden</button><button class="btn" data-loeschen="${p.platz}" title="Löschen">✕</button>`) : `<button class="btn primary" data-speichern="${p.platz}">${p.leer ? 'Speichern' : 'Überschreiben'}</button>`}</div></div>`).join('')}</div>
+      <div class="row-btns">${art === 'laden' ? '<button class="btn" data-m="import">Datei importieren …</button>' : '<button class="btn" data-m="export">Als Datei exportieren</button>'}</div>
+      <button class="btn zurueck" data-m="${hatAutosave() && art === 'speichern' ? 'pause' : (hatAutosave() ? 'pause' : 'start')}">Zurück</button>`;
+  } else if (art === 'hilfe') {
+    const T = [['Mausrad / + −', 'Zoomen – weit hinein wechselt in die Spielansicht'], ['Ziehen, Pfeile', 'Verschieben'], ['1–9', 'Strecken-Werkzeuge'], ['A / K', 'Ampel / Kreisverkehr'], ['Klick, Klick, Enter', 'Strecke: Start, Ziel, bauen'],
+      ['Rücktaste / Esc', 'Wegpunkt zurück / abbrechen'], ['Strg+Z', 'Rückgängig'], ['I', 'Spielansicht ein/aus'], ['Q / E', 'Spielansicht drehen'], ['U', 'Tageszeit'], ['H', 'Häuser flach'],
+      ['Z S R T V F B', 'Ebenen: Zustand, Sicherheit, Radnetz, Routen, Verkehr, Zufriedenheit, Steigung'], ['G / L / N', 'Relief, Live-Verkehr, Namen'], ['M', 'Menü']];
+    k.innerHTML = `<h2>Steuerung</h2><div class="tastenliste">${T.map(([a, b]) => `<kbd>${a}</kbd><span>${b}</span>`).join('')}</div><button class="btn zurueck" data-m="${hatAutosave() ? 'pause' : 'start'}">Zurück</button>`;
+  }
+}
+function schliesseMenu() { $('menu').hidden = true; dirty = true; }
+$('menu-auf').onclick = () => zeigeMenu(hatAutosave() ? 'pause' : 'start');
+$('menu').addEventListener('click', e => {
+  const b = e.target.closest('[data-m],[data-laden],[data-loeschen],[data-speichern]'); if (!b) { if (e.target.id === 'menu' && hatAutosave()) schliesseMenu(); return; }
+  const m = b.dataset.m;
+  if (m === 'weiter') return schliesseMenu();
+  if (m === 'start' || m === 'pause' || m === 'neu' || m === 'laden' || m === 'speichern' || m === 'hilfe') return zeigeMenu(m);
+  if (m === 'wahl') { neuerName = ($('neu-name').value || 'Mein Radnetz').trim(); schliesseMenu(); return starteWahl(); }
+  if (m === 'ganz') { neuerName = ($('neu-name').value || 'Mein Radnetz').trim(); return starteSpiel(null); }
+  if (m === 'export') { spiel.s.name = ($('sp-name').value || spiel.s.name).trim(); spiel.speichern(); return Speicher.exportieren(man.slug, spiel.s, verkehr && verkehr.erg); }
+  if (m === 'import') return $('import-datei').click();
+  if (b.dataset.speichern) {
+    spiel.s.name = ($('sp-name').value || spiel.s.name || 'Mein Radnetz').trim(); spiel.speichern();
+    const ok = Speicher.speichern(man.slug, +b.dataset.speichern, spiel.s, verkehr && verkehr.erg);
+    zeigeHinweis(ok ? `Gespeichert auf Platz ${b.dataset.speichern}.` : 'Speichern fehlgeschlagen – Browser-Speicher voll. Als Datei exportieren?');
+    return zeigeMenu('speichern');
+  }
+  if (b.dataset.laden) { const st = Speicher.laden(man.slug, +b.dataset.laden); if (st) { uebernimmStand(st); schliesseMenu(); zeigeHinweis(`Spielstand „${st.name || ''}“ geladen.`); } return; }
+  if (b.dataset.loeschen) { if (b.dataset.sicher) { Speicher.loeschen(man.slug, +b.dataset.loeschen); zeigeMenu('laden'); } else { b.dataset.sicher = 1; b.textContent = 'Sicher?'; } }
+});
+$('import-datei').onchange = async e => {
+  const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+  try { const v = await Speicher.importieren(f); if (v.region && v.region !== man.slug) zeigeHinweis(`Achtung: Spielstand gehört zur Region „${v.region}“.`); uebernimmStand(v.stand); schliesseMenu(); zeigeHinweis(`Spielstand „${v.stand.name || ''}“ importiert.`); }
+  catch (err) { zeigeHinweis('Import fehlgeschlagen: ' + err.message); }
+};
+// Geladenen Stand ins Spiel übernehmen: Ausbauten auf die Kacheln, Verkehr neu, Kamera aufs Gebiet
+function uebernimmStand(st) {
+  spiel.ladeStand(st); nachSpielwechsel();
+}
+function nachSpielwechsel() {
+  wendeAn(store, spiel); chunks.clear(); Iso.ungueltig(); baustellen = []; liveRect = null; liveSig = ''; netzSig = '';
+  if (verkehr) { verkehr.gebiet = spiel.s.gebiet; verkehr.erg = null; if (verkehr.netz) verkehr.rechnen(); } // neues Gebiet: kein Vergleich mit dem alten Stand
+  selected = null; inspect(null); renderSpiel(); updateSurvey(true); $('spielname').textContent = spiel.s.name || 'Mein Radnetz';
+  if (spiel.s.gebiet) zeigeGebiet(spiel.s.gebiet); dirty = true;
+}
+function zeigeGebiet(g) { // Karte auf das Gebiet einpassen
+  if (modus === 'iso') zuKarte();
+  const unten = wahlGebiet ? 250 : 0; // Platz für das Gebietswahl-Panel
+  cam.z = clamp(Math.min(vw, vh - unten) * .82 / (2 * g.r), .02, 2); cam.x = g.x - vw / cam.z / 2; cam.y = g.y - (vh - unten) / cam.z / 2; clampCam(); dirty = true;
+}
+// Gebietswahl
+let neuerName = 'Mein Radnetz';
+const radiusVon = v => Math.round(500 * Math.pow(120, v / 100) / 50) * 50;           // 0,5 km … 60 km
+const wertVon = r => Math.round(Math.log(r / 500) / Math.log(120) * 100);
+function starteWahl() {
+  if (modus === 'iso') zuKarte();
+  document.body.classList.add('wahl'); $('gebietwahl').hidden = false; setWerkzeug('auswahl');
+  const W0 = man.bbox_utm[2] - man.bbox_utm[0], H0 = man.bbox_utm[3] - man.bbox_utm[1];
+  const g = spiel.s.gebiet || { x: cam.x + vw / cam.z / 2, y: cam.y + vh / cam.z / 2, r: Math.min(3000, Math.min(W0, H0) / 2) };
+  wahlGebiet = { ...g }; $('gw-r').value = wertVon(wahlGebiet.r); wahlInfo(); zeigeGebiet(wahlGebiet);
+}
+function wahlInfo() {
+  const g = wahlGebiet; if (!g) return;
+  $('gw-rtext').textContent = g.r >= 1e9 ? 'ganz' : fmt(g.r / 1000, g.r < 10000 ? 1 : 0) + ' km';
+  const orte = (man.orte || []).filter(o => o.rang <= 4 && Math.hypot(o.e - man.bbox_utm[0] - g.x, man.bbox_utm[3] - o.n - g.y) <= g.r).sort((a, b) => a.rang - b.rang);
+  const ew = verkehr && verkehr.Z ? verkehr.einwohner(g) : null;
+  $('gw-info').innerHTML = `<div class="k"><span>Orte</span><b>${orte.length}</b></div><div class="k"><span>Einwohner</span><b>${ew != null ? fmt(ew) : '…'}</b></div>
+    <div class="k cost"><span>Startkapital</span><b>${eur(Spiel.startkapital(ew))}</b></div><div class="k"><span>Fläche</span><b>${fmt(Math.PI * g.r * g.r / 1e6, g.r < 2000 ? 1 : 0)} km²</b></div>
+    <div class="hint">${orte.slice(0, 8).map(o => esc(o.name)).join(', ') || 'Keine Orte im Kreis – Mittelpunkt in ein Dorf setzen.'}${orte.length > 8 ? ' …' : ''}</div>`;
+  $('gw-start').disabled = !ew; dirty = true;
+}
+$('gw-r').oninput = () => { if (!wahlGebiet) return; wahlGebiet.r = radiusVon(+$('gw-r').value); wahlInfo(); };
+document.querySelectorAll('.gw-preset [data-r]').forEach(b => b.onclick = () => {
+  const r = +b.dataset.r;
+  if (!r) { endeWahl(); return starteSpiel(null); }
+  wahlGebiet.r = r; $('gw-r').value = wertVon(r); wahlInfo(); zeigeGebiet(wahlGebiet);
+});
+$('gw-abbruch').onclick = () => { endeWahl(); zeigeMenu('neu'); };
+$('gw-start').onclick = () => { const g = wahlGebiet; endeWahl(); starteSpiel(g); };
+function endeWahl() { document.body.classList.remove('wahl'); $('gebietwahl').hidden = true; wahlGebiet = null; dirty = true; }
+function starteSpiel(g) {
+  const ew = verkehr && verkehr.Z ? verkehr.einwohner(g) : 0;
+  spiel.neu({ name: neuerName, gebiet: g ? { x: Math.round(g.x), y: Math.round(g.y), r: g.r } : null, budget: Spiel.startkapital(ew) });
+  schliesseMenu(); nachSpielwechsel();
+  zeigeHinweis(`Neues Spiel „${spiel.s.name}“ – ${gebietText(spiel.s.gebiet)}, ${eur(spiel.s.budget)} Startkapital.`);
+}
+
 const pointers = new Map(); let down = null, moved = false, pinch = null;
 const evPos = e => { const r = view.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
 view.addEventListener('pointerdown', e => {
@@ -960,6 +1089,7 @@ view.addEventListener('pointermove', e => {
 function endP(e) {
   if (!pointers.has(e.pointerId)) return; const p = pointers.get(e.pointerId); pointers.delete(e.pointerId);
   if (pinch) { if (pointers.size < 2) pinch = null; return; }
+  if (!moved && down && man && wahlGebiet) { const [x, y] = weltPunkt(p); wahlGebiet.x = x; wahlGebiet.y = y; wahlInfo(); down = null; return; }
   if (!moved && down && man && werkzeug !== 'auswahl') { werkzeugKlick(...weltPunkt(p)); down = null; return; }
   if (!moved && down && man) { const r = pickRoad(...weltPunkt(p));
     if (e.shiftKey && r && selected) {
@@ -974,7 +1104,7 @@ function endP(e) {
 view.addEventListener('dblclick', () => { if (ausbauVon(werkzeug) && wege.length) werkzeugBauen(); });
 view.addEventListener('pointerup', endP); view.addEventListener('pointercancel', endP);
 view.addEventListener('pointerleave', () => { hover = null; $('tip').hidden = true; dirty = true; });
-view.addEventListener('wheel', e => { e.preventDefault(); if (modus === 'iso') return isoRad(-e.deltaY); const p = evPos(e); zoomAt(cam.z * Math.pow(1.0015, -e.deltaY), p.x, p.y); if (cam.z > ISO_AB && !overlay) { const [x, y] = weltPunkt({ x: vw / 2, y: vh / 2 }); zuIso(x, y, 1); } }, { passive: false });
+view.addEventListener('wheel', e => { e.preventDefault(); if (modus === 'iso') return isoRad(-e.deltaY); const p = evPos(e); zoomAt(cam.z * Math.pow(1.0015, -e.deltaY), p.x, p.y); if (cam.z > ISO_AB && !overlay && !wahlGebiet) { const [x, y] = weltPunkt({ x: vw / 2, y: vh / 2 }); zuIso(x, y, 1); } }, { passive: false });
 $('z-in').onclick = () => { if (modus === 'iso') return isoRad(1); zoomAt(cam.z * 1.5, vw / 2, vh / 2); if (cam.z > ISO_AB && !overlay) zuIso(cam.x + vw / cam.z / 2, cam.y + vh / cam.z / 2, 1); };
 $('z-out').onclick = () => { if (modus === 'iso') { radT = 0; return isoRad(-1); } zoomAt(cam.z / 1.5, vw / 2, vh / 2); };
 document.querySelectorAll('[data-ov]').forEach(b => b.onclick = () => setOverlay(b.dataset.ov));
@@ -982,6 +1112,9 @@ $('t-names').onclick = () => { showNames = !showNames; $('t-names').setAttribute
 window.addEventListener('keydown', e => {
   if (e.target.closest && e.target.closest('input')) return;
   const k = e.key.toLowerCase();
+  if (menuOffen()) { if (k === 'escape' && hatAutosave()) schliesseMenu(); return; }
+  if (wahlGebiet) { if (k === 'escape') $('gw-abbruch').click(); if (k === 'enter' && !$('gw-start').disabled) $('gw-start').click(); return; }
+  if (k === 'm') { zeigeMenu(hatAutosave() ? 'pause' : 'start'); return; }
   if ((e.ctrlKey || e.metaKey) && k === 'z') { e.preventDefault(); $('undo').click(); return; }
   if (e.ctrlKey || e.metaKey || e.altKey) return;
   if (TASTE[k]) { setWerkzeug(TASTE[k]); return; }

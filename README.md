@@ -77,6 +77,8 @@ docker run -d --name radwegtycoon-viewer --restart unless-stopped -p 8190:80 \
 
 `region` ist der `slug` der Regionsdatei, der Viewer lädt `daten/<slug>/karte/`. Nach einem neuen
 Pipeline-Lauf reicht ein Neuladen der Seite; nach `git pull` das Image neu bauen und den Container neu starten.
+Spielen: Im Hauptmenü „Neues Spiel“, Spielgebiet als Kreis auf der Karte wählen (oder ganze Region).
+Spielstände: sechs Speicherplätze im Browser plus Export/Import als Datei (Menü: Logo oben links oder `M`).
 Bauen: Werkzeug links wählen (Tasten 1–9, A Ampel, K Kreisverkehr), Start und Ziel anklicken – die Strecke
 folgt der Straße –, mit Enter bauen; Strg+Z macht rückgängig. Tasten: Mausrad/+/− zoomen, Pfeile verschieben, `Z` Zustand, `S` Sicherheit, `R` Radnetz, `T` Radrouten, `V` Verkehr, `B` Steigung, `G` Relief, `F` Zufriedenheit, `L` Live-Verkehr, `I` Spielansicht (auch durch weites Hineinzoomen), `N` Namen.
 In der Spielansicht: `Q`/`E` drehen, `H` Häuser flach, `U` Tageszeit.

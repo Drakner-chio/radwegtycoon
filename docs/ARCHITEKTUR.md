@@ -199,3 +199,20 @@ geschätzt ist.
   Sammelstraße 18, mit Ampel 10, mit Kreisel 14; `KNOTEN_STRAFE` in `verkehr.js`), Darstellung in Karte und Iso.
 - Tasten: 1–9 Streckenwerkzeuge, A Ampel, K Kreisverkehr, Enter/Doppelklick bauen, Rücktaste Wegpunkt zurück,
   Esc abbrechen, Strg+Z rückgängig.
+
+## Spielablauf: Hauptmenü, Spielgebiet, Spielstände
+
+- Beim Öffnen erscheint das Hauptmenü (Weiterspielen, Neues Spiel, Spiel laden, Steuerung); im Spiel über
+  das Logo oben links oder Taste `M` (dann auch Speichern).
+- Neues Spiel: Name, dann Spielgebiet als Kreis auf der Karte (Mittelpunkt per Klick, Radius 0,5–60 km,
+  Schnellwahl 1/3/10/25 km) oder ganze Region. Das Gebiet (`spiel.s.gebiet`, Weltmeter) begrenzt
+  - das Verkehrsmodell: nur Zellen im Kreis sind Start und Ziel (Maske im Worker),
+  - alle Kennzahlen (Radanteil, Zufriedenheit, Einwohner, Einnahmen),
+  - das Bauen (Mitte des Abschnitts bzw. Kreuzung muss im Kreis liegen),
+  - die Darstellung (außerhalb abgedunkelt, in Karte und Spielansicht).
+  Startkapital 250 € je Einwohner (mind. 300.000 €), Einnahmen je Jahr Einwohner × (60 + 1,2 × Zufriedenheit
+  + 250 × Radanteil) € – Platzhalter bis zur Eichung.
+- Spielstände (`js/speicher.js`): laufender Stand automatisch (`rtc-spiel-<slug>`), dazu sechs Speicherplätze
+  (`rtc-save-<slug>-<n>`) mit Metadaten, Export/Import als JSON-Datei (Sicherung, anderer Rechner).
+- Spielansicht genordet (Drehung 45° + k·90°), Schutz-/Radfahrstreifen verbreitern schmale Fahrbahnen
+  auf 7 bzw. 8 m (160 € je m Länge und m Mehrbreite).

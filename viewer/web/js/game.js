@@ -64,6 +64,7 @@ export class Spiel {
     try { const v = JSON.parse(localStorage.getItem(this.key)); if (v && v.kanten) this.s = v; } catch (e) {}
     if (!this.s.jahr) { this.s.jahr = 1; this.s.jahre = []; }
     if (!this.s.knoten) this.s.knoten = {};
+    if (this.s.gebiet === undefined) this.s.gebiet = null;
     this.onChange = () => {};
   }
   speichern() { try { localStorage.setItem(this.key, JSON.stringify(this.s)); } catch (e) {} this.onChange(); }
@@ -106,11 +107,16 @@ export class Spiel {
     this.speichern();
     return e;
   }
-  neu() { this.s = { budget: START_BUDGET, kanten: {}, knoten: {}, log: [], jahr: 1, jahre: [] }; this.speichern(); }
+  // Neues Spiel: Name, Spielgebiet (Kreis {x, y, r} in Weltmetern oder null = ganze Region), Startkapital
+  neu(opt = {}) { this.s = { budget: opt.budget ?? START_BUDGET, kanten: {}, knoten: {}, log: [], jahr: 1, jahre: [], gebiet: opt.gebiet || null, name: opt.name || 'Mein Radnetz', erstellt: Date.now() }; this.speichern(); }
+  ladeStand(s) { this.s = JSON.parse(JSON.stringify(s)); if (!this.s.knoten) this.s.knoten = {}; if (!this.s.jahre) this.s.jahre = []; if (!this.s.jahr) this.s.jahr = 1; if (this.s.gebiet === undefined) this.s.gebiet = null; this.speichern(); }
+  imGebiet(x, y) { const g = this.s.gebiet; return !g || Math.hypot(x - g.x, y - g.y) <= g.r; }
+  // Startkapital und Einnahmen wachsen mit den Einwohnern im Spielgebiet (Platzhalter bis zur Eichung)
+  static startkapital(ew) { return ew ? Math.max(300_000, Math.round(ew * 250 / 10_000) * 10_000) : START_BUDGET; }
 
   // Jahresabschluss: Einnahmen aus Grundbetrag, Zufriedenheit und Radanteil (Platzhalter, später eichen).
   // Danach lassen sich die Aufträge des Jahres nicht mehr rückgängig machen.
-  static einnahmen(erg) { return Math.round((400_000 + 12_000 * erg.zufrieden + 2_000_000 * erg.anteil) / 1000) * 1000; }
+  static einnahmen(erg) { if (erg.ew) return Math.round(erg.ew * (60 + 1.2 * erg.zufrieden + 250 * erg.anteil) / 1000) * 1000; return Math.round((400_000 + 12_000 * erg.zufrieden + 2_000_000 * erg.anteil) / 1000) * 1000; }
   jahrAbschliessen(erg) {
     const ein = Spiel.einnahmen(erg);
     this.s.jahre.push({ jahr: this.s.jahr, anteil: erg.anteil, zufrieden: erg.zufrieden, radKm: erg.radKm, ausgaben: this.s.log.reduce((a, e) => a + e.kosten, 0), einnahmen: ein });

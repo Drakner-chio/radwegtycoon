@@ -24,7 +24,7 @@ export class Verkehr {
     // Version aus Größe und Höhenstand: nach `netz`/`hoehe` wird die neue Datei geladen, nicht die zwischengespeicherte
     const v = man.netz ? `${man.netz.bytes}-${man.hoehe ? man.hoehe.max : 0}` : '0';
     this.url = new URL(base + (man.netz && man.netz.datei || 'netz.json.gz') + '?v=' + encodeURIComponent(v), location.href).href;
-    this.patchFor = patchFor; this.knotenBau = () => null;
+    this.patchFor = patchFor; this.knotenBau = () => null; this.gebiet = null;
     this.ok = !!man.netz;
     this.erg = null; this.vorher = null; this.laeuft = false; this.wieder = false;
     this.onStatus = () => {}; this.onErgebnis = () => {};
@@ -91,7 +91,7 @@ export class Verkehr {
   async rechnen() {
     if (this.laeuft) { this.wieder = true; return; }
     this.laeuft = true; const t0 = performance.now();
-    const f = this.faktoren(), strafe = this.knotenStrafe(), W = this.worker.length;
+    const f = this.faktoren(), strafe = this.knotenStrafe(), maske = this.maske(), W = this.worker.length;
     // Zellen reihum verteilen (Lastausgleich: große Städte nicht alle in einem Block)
     const stueck = Math.max(1, Math.ceil(this.nZ / (W * 6))), auftraege = [];
     for (let v = 0; v < this.nZ; v += stueck) auftraege.push([v, Math.min(this.nZ, v + stueck)]);
@@ -112,18 +112,21 @@ export class Verkehr {
           this.onStatus(`Verkehr wird berechnet … ${Math.round(fertig / gesamt * 100)} %`);
           naechster();
         };
-        w.postMessage({ typ: 'rechne', id: a[0], faktor: f, strafe, von: a[0], bis: a[1] });
+        w.postMessage({ typ: 'rechne', id: a[0], faktor: f, strafe, maske, von: a[0], bis: a[1] });
       };
       naechster();
     })));
     Z.zRadIn = Float32Array.from(this._radIn); this._radIn = null;
     let zs = 0, zw = 0; for (let z = 0; z < this.nZ; z++) if (Z.zZufW[z] > 0) { zs += Z.zZuf[z] * this.Z.ew[z]; zw += this.Z.ew[z]; }
     this.vorher = this.erg;
-    this.erg = { vol: Float32Array.from(vol), ...Z, wege, rad, radKm, anteil: wege ? rad / wege : 0, zufrieden: zw ? zs / zw : 0, ms: performance.now() - t0, t: Date.now() };
+    this.erg = { vol: Float32Array.from(vol), ...Z, wege, rad, radKm, anteil: wege ? rad / wege : 0, zufrieden: zw ? zs / zw : 0, ew: this.einwohner(), ms: performance.now() - t0, t: Date.now() };
     this.laeuft = false;
     this.onErgebnis(this.erg, this.vorher);
     if (this.wieder) { this.wieder = false; this.rechnen(); }
   }
+  // Spielgebiet (Kreis in Weltkoordinaten) -> Zellmaske; null = ganze Region
+  maske() { if (!this.gebiet) return null; const g = this.gebiet, m = new Uint8Array(this.nZ); for (let z = 0; z < this.nZ; z++) m[z] = Math.hypot(this.Z.x[z] - g.x, this.Z.y[z] - g.y) <= g.r ? 1 : 0; return m; }
+  einwohner(g = this.gebiet) { let s = 0; for (let z = 0; z < this.nZ; z++) if (!g || Math.hypot(this.Z.x[z] - g.x, this.Z.y[z] - g.y) <= g.r) s += this.Z.ew[z]; return s; }
   knotenPos(id) { const v = this.kid && this.kid.get(id); return v === undefined ? null : [this.kx[v], this.ky[v]]; }
   volumen(id) { const e = this.idx && this.idx.get(id); return e === undefined || !this.erg ? null : this.erg.vol[e]; }
   // Kennzahlen für einen Kreis (Ortsansicht)

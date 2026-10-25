@@ -9,7 +9,7 @@ Doku, UI, Commit-Messages): Deutsch.
 - `viewer/`: Kartenviewer + Spiel (statisch, nginx), lädt `daten/<slug>/karte/`; Aufruf `?region=<slug>`.
   Bauen: `js/game.js`; Verkehr Ebene 1: `pipeline/rtc/netz.py` → `netz.json.gz`, `js/verkehr*.js`;
   Ebene 2 (Live-Verkehr): `js/live.js`. Höhen: `pipeline/rtc/hoehe.py` → `hoehe/`, `js/hoehe.js`.
-  Spielansicht (isometrisch): `js/isoansicht.js`; Werkzeuge: `js/werkzeug.js`.
+  Spielansicht (isometrisch): `js/isoansicht.js`; Werkzeuge: `js/werkzeug.js`; Spielstände: `js/speicher.js`.
 - `prototypen/`: Testdorf-Spiel (Feldraster) und erste Ortsvorschau (eine HTML-Datei mit
   eingebetteten Daten). Beide sind Vorstufen; das eigentliche Spiel baut auf dem Viewer auf.
 
