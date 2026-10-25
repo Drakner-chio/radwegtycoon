@@ -13,7 +13,7 @@ export class Hoehen {
   raster(l, ix, iy) {
     const k = l + '/' + ix + '_' + iy; if (!this.avail[l] || !this.avail[l].has(ix + '_' + iy)) return undefined;
     if (this.cache.has(k)) return this.cache.get(k);
-    if (!this.laden.has(k)) this.laden.set(k, this.hole(`${this.base}hoehe/${l}/${ix}_${iy}.bin.gz`).then(a => { this.cache.set(k, a); this.laden.delete(k); this.onLoad(); }).catch(() => { this.cache.set(k, undefined); this.laden.delete(k); }));
+    if (!this.laden.has(k)) this.laden.set(k, this.hole(`${this.base}hoehe/${l}/${ix}_${iy}.bin.gz?v=${this.h.min}_${this.h.max}_${this.h.tiles['0'].length}`).then(a => { this.cache.set(k, a); this.laden.delete(k); this.onLoad(); }).catch(() => { this.cache.set(k, undefined); this.laden.delete(k); }));
     return null;
   }
   async hole(url) {

@@ -36,7 +36,7 @@ let dirty = true, overlay = null, showNames = true, selected = null, hover = nul
 async function start() {
   buildPatterns();
   try {
-    const r = await fetch(base + 'manifest.json');
+    const r = await fetch(base + 'manifest.json', { cache: 'no-cache' });
     if (!r.ok) throw new Error('HTTP ' + r.status);
     man = await r.json();
   } catch (e) {
@@ -326,7 +326,8 @@ function drawVerkehr(top) {
 const STEIG = [[0, '#3fae4a'], [30, '#9cc23e'], [50, '#e2c43a'], [80, '#e48a34'], [120, '#d8452f']];
 const steigKl = v => { let k = 0; for (let i = 0; i < STEIG.length; i++) if (v >= STEIG[i][0]) k = i; return k; };
 function drawSteigung(top) {
-  if (!verkehr || !verkehr.netz || !verkehr.netz.kanten.steil) return;
+  if (!verkehr || !verkehr.netz) return;
+  if (!verkehr.netz.kanten.steil) { const h = $('legend').querySelector('.hint'); if (h && !h.dataset.fehlt) { h.dataset.fehlt = 1; h.textContent = 'Im Verkehrsnetz fehlen die Steigungen: Pipeline-Schritt „hoehe“ nach „netz“ ausführen.'; } return; }
   const S = verkehr.netz.kanten.steil, wpx = 1 / cam.z, paths = STEIG.map(() => new Path2D());
   const vx0 = cam.x, vy0 = cam.y, vx1 = cam.x + vw / cam.z, vy1 = cam.y + vh / cam.z;
   vctx.fillStyle = 'rgba(12,20,16,.35)'; vctx.fillRect(cam.x, cam.y, vw / cam.z, vh / cam.z);

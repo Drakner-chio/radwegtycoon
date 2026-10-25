@@ -19,7 +19,9 @@ export function radFaktor(m) {
 
 export class Verkehr {
   constructor(base, man, patchFor) {
-    this.url = new URL(base + (man.netz && man.netz.datei || 'netz.json.gz'), location.href).href;
+    // Version aus Größe und Höhenstand: nach `netz`/`hoehe` wird die neue Datei geladen, nicht die zwischengespeicherte
+    const v = man.netz ? `${man.netz.bytes}-${man.hoehe ? man.hoehe.max : 0}` : '0';
+    this.url = new URL(base + (man.netz && man.netz.datei || 'netz.json.gz') + '?v=' + encodeURIComponent(v), location.href).href;
     this.patchFor = patchFor;
     this.ok = !!man.netz;
     this.erg = null; this.vorher = null; this.laeuft = false; this.wieder = false;

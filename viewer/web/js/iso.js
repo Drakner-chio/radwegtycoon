@@ -485,7 +485,7 @@ function schleife(now) {
   requestAnimationFrame(schleife);
 }
 async function start() {
-  try { man = await (await fetch(base + 'manifest.json')).json(); } catch (e) { $('info').textContent = 'Keine Karte unter ' + base; return; }
+  try { man = await (await fetch(base + 'manifest.json', { cache: 'no-cache' })).json(); } catch (e) { $('info').textContent = 'Keine Karte unter ' + base; return; }
   spiel = new Spiel(man.slug);
   store = new TileStore(base, man, () => { dirty = true; });
   store.patchFor = id => spiel.patchFor(id);

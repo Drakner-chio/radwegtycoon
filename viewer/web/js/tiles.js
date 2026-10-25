@@ -56,7 +56,8 @@ export class TileStore {
     }
   }
   async fetchTile(l, ix, iy) {
-    const r = await fetch(`${this.base}tiles/${l}/${ix}_${iy}.json.gz`);
+    // ?v= Stand des Pipeline-Laufs: neue Läufe umgehen den Browser-Cache
+    const r = await fetch(`${this.base}tiles/${l}/${ix}_${iy}.json.gz?v=${encodeURIComponent(this.man.erstellt || '')}`);
     if (!r.ok) throw new Error('HTTP ' + r.status);
     let buf = new Uint8Array(await r.arrayBuffer());
     // Je nach Server kommt die Datei noch gepackt (1f 8b) oder schon entpackt an
