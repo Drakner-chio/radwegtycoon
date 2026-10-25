@@ -46,14 +46,12 @@ let S = ZOOMS[cam.zi], W = 0, H = 0, statisch = null, haeuser = true;
 const MARGE = 160; // Pixel Rand der statischen Szene
 
 /* ----------------------------- Projektion ----------------------------- */
-// Drehung um die Kameramitte in 90°-Schritten
-function rot(x, y) {
-  const dx = x - cam.x, dy = y - cam.y;
-  switch (cam.rot) { case 1: return [dy, -dx]; case 2: return [-dx, -dy]; case 3: return [-dy, dx]; default: return [dx, dy]; }
-}
-function unrot(u, v) {
-  switch (cam.rot) { case 1: return [cam.x - v, cam.y + u]; case 2: return [cam.x - u, cam.y - v]; case 3: return [cam.x + v, cam.y - u]; default: return [cam.x + u, cam.y + v]; }
-}
+// Drehung um die Kameramitte. Winkel 45° + k·90°: bei k = 0 zeigt Norden nach oben (wie in der Karte),
+// k = 1 Osten oben, k = 2 Süden oben, k = 3 Westen oben.
+let cs = Math.SQRT1_2, sn = Math.SQRT1_2;
+function winkel() { const w = (45 + 90 * cam.rot) * Math.PI / 180; cs = Math.cos(w); sn = Math.sin(w); }
+function rot(x, y) { const dx = x - cam.x, dy = y - cam.y; return [cs * dx + sn * dy, -sn * dx + cs * dy]; }
+function unrot(u, v) { return [cam.x + cs * u - sn * v, cam.y + sn * u + cs * v]; }
 // Gelände: Höhe relativ zur Bildmitte (h0), überhöht. gelFix setzt eine feste Grundhöhe (Gebäude, Fahrzeuge).
 const EX = 1.5;
 let h0 = 0, gelFix = null, gelFehlt = false;
@@ -708,7 +706,7 @@ export const pxProM = () => S * PX;                       // Bildschirmpunkte je
 export const zoomStufe = () => cam.zi;
 export function zoom(d) { const z = cam.zi + d; if (z < 0) return false; cam.zi = Math.min(ZOOMS.length - 1, z); S = ZOOMS[cam.zi]; baumCache.clear(); statisch = null; return true; }
 export function setzeZoom(i) { cam.zi = Math.max(0, Math.min(ZOOMS.length - 1, i)); S = ZOOMS[cam.zi]; baumCache.clear(); statisch = null; }
-export function drehen(d) { cam.rot = (cam.rot + d + 4) % 4; statisch = null; }
+export function drehen(d) { cam.rot = (cam.rot + d + 4) % 4; winkel(); statisch = null; }
 export function haeuserZeigen(an) { haeuser = an; statisch = null; }
 // Bildschirmpunkt (CSS-Pixel) -> Welt
 export function bildVon(x, y) { const p = P(x, y, 2); return [p[0] * PX, p[1] * PX]; }
@@ -720,8 +718,7 @@ export function weltVon(cssX, cssY) {
 // Verschieben um CSS-Pixel
 export function verschiebe(dx, dy) {
   const a = dx / PX / S, b = dy / PX * 2 / S, du = -(a + b) / 2, dv = -(b - a) / 2;
-  const k = { 0: [du, dv], 1: [-dv, du], 2: [-du, -dv], 3: [dv, -du] }[cam.rot];
-  cam.x += k[0]; cam.y += k[1];
+  cam.x += cs * du - sn * dv; cam.y += sn * du + cs * dv;
 }
 export { sichtbereich };
-export const blick = () => ['Nord', 'Ost', 'Süd', 'West'][cam.rot];
+export const blick = () => ['Norden', 'Osten', 'Süden', 'Westen'][cam.rot] + ' oben';

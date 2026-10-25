@@ -9,12 +9,14 @@ export const START_BUDGET = 2_000_000;
 // Kosten grob nach üblichen Richtwerten (€/m Straßenlänge bzw. pauschal).
 // gilt(m) entscheidet, ob der Ausbau für die Kante angeboten wird.
 export const AUSBAU = [
-  { id: 'schutz', art: 'strasse', name: 'Schutzstreifen', info: 'Markierung beidseitig, Autos dürfen bei Bedarf drüber.', proM: 30, fix: 0,
-    gilt: m => isRoad(m) && m.cls !== 'auto' && !m.oneway && (m.cw || 0) >= 6.5 && Math.max(m.fac_l || 0, m.fac_r || 0) < 1,
-    patch: m => ({ fac_l: 1, fac_r: 1, bike: 1 }) },
-  { id: 'streifen', art: 'strasse', name: 'Radfahrstreifen', info: 'Durchgezogene Linie, eigener Fahrstreifen fürs Rad.', proM: 70, fix: 0,
-    gilt: m => isRoad(m) && m.cls !== 'auto' && (m.cw || 0) >= 7.5 && Math.max(m.fac_l || 0, m.fac_r || 0) < 2,
-    patch: m => ({ fac_l: 2, fac_r: 2, bike: 1 }) },
+  // cw im Spielmodell ist die halbe Fahrbahnbreite. breiteMin = nötige volle Fahrbahnbreite; schmalere
+  // Fahrbahnen werden beim Bau verbreitert (Mehrkosten je Meter Mehrbreite, siehe kosten()).
+  { id: 'schutz', art: 'strasse', name: 'Schutzstreifen', info: 'Markierung beidseitig, Autos dürfen bei Bedarf drüber. Verbreitert die Fahrbahn auf 7 m, falls nötig.', proM: 30, fix: 0, breiteMin: 7,
+    gilt: m => isRoad(m) && ['L', 'dorf', 'wohn'].includes(m.cls) && 2 * (m.cw || 0) >= 5 && Math.max(m.fac_l || 0, m.fac_r || 0) < 1 && !m.frs,
+    patch: m => ({ fac_l: 1, fac_r: 1, bike: 1, cw: Math.max(m.cw || 0, 3.5) }) },
+  { id: 'streifen', art: 'strasse', name: 'Radfahrstreifen', info: 'Durchgezogene Linie, eigener Fahrstreifen fürs Rad. Verbreitert die Fahrbahn auf 8 m, falls nötig.', proM: 70, fix: 0, breiteMin: 8,
+    gilt: m => isRoad(m) && ['L', 'dorf', 'wohn'].includes(m.cls) && 2 * (m.cw || 0) >= 5 && Math.max(m.fac_l || 0, m.fac_r || 0) < 2 && !m.frs,
+    patch: m => ({ fac_l: 2, fac_r: 2, bike: 1, cw: Math.max(m.cw || 0, 4) }) },
   { id: 'hochbord', art: 'strasse', name: 'Baulicher Radweg', info: 'Getrennt von der Fahrbahn, asphaltiert, beidseitig.', proM: 480, fix: 0,
     gilt: m => isRoad(m) && m.cls !== 'auto' && m.cls !== 'spiel' && Math.max(m.fac_l || 0, m.fac_r || 0) !== 3,
     patch: m => ({ fac_l: 3, fac_r: 3, tsurf: 'asphalt', tcond: 96, bike: 1 }) },
@@ -46,10 +48,11 @@ export const KNOTEN = [
     gilt: k => k.strassen >= 3 && !k.kreisel && !k.autobahn },
 ];
 
+export const VERBREITERN_JE_M = 160; // € je Meter Straßenlänge und Meter Mehrbreite
 export function kosten(a, r) {
-  const m = r.m0 || r.m;
-  const breite = m.cw || 5;
-  return Math.round(r.len * (a.proM + (a.proM2 || 0) * breite));
+  const m = r.m || r.m0, breite = 2 * (m.cw || 2.5);
+  const mehr = a.breiteMin ? Math.max(0, a.breiteMin - breite) * VERBREITERN_JE_M : 0;
+  return Math.round(r.len * (a.proM + (a.proM2 || 0) * breite + mehr));
 }
 // Pauschale (Schilder, Planung) fällt einmal pro Auftrag an, nicht pro Abschnitt
 export const gesamt = (a, roads) => roads.length ? a.fix + roads.reduce((s, r) => s + kosten(a, r), 0) : 0;

@@ -61,7 +61,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline
 .tools .sep{height:1px;background:var(--line);margin:3px 6px}
 
 /* Werkzeug-Panel */
-.toolpanel{position:absolute;left:50%;top:84px;transform:translateX(-50%);width:min(560px,calc(100% - 520px));min-width:420px;padding:12px 14px;display:flex;flex-direction:column;gap:10px}
+.toolpanel{position:absolute;left:50%;bottom:16px;transform:translateX(-50%);width:min(560px,calc(100% - 520px));min-width:420px;padding:12px 14px;display:flex;flex-direction:column;gap:10px}
 .tp-head{display:flex;gap:10px;align-items:flex-start}
 .tp-icon{width:28px;height:28px;flex:none}
 .tp-head b{font-size:15px}
@@ -181,3 +181,4 @@ body:not(.iso) .nur-iso{display:none}
 .float{position:absolute;transform:translate(-50%,-50%);font-weight:700;font-size:15px;padding:3px 9px;border-radius:999px;background:rgba(16,22,20,.85);border:1px solid var(--line);white-space:nowrap;animation:steigen 2.6s ease-out forwards;font-variant-numeric:tabular-nums}
 .float.kosten{color:#ffb4aa}.float.gut{color:#8ff0b5}.float.schlecht{color:#ffb4aa}
 @keyframes steigen{0%{opacity:0;margin-top:8px}12%{opacity:1}75%{opacity:1}100%{opacity:0;margin-top:-56px}}
+.stage.bauen .views,.stage.bauen .legend{display:none}

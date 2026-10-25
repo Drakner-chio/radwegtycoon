@@ -900,7 +900,7 @@ function zeichneIso() {
   const fehlt = Iso.zeichne(vctx, { live: liveAktiv(), marker: m, zeit: performance.now() / 1000, baustellen: aktiveBaustellen() });
   // Kamera der Karte mitführen (Rückweg, gespeicherte Position)
   cam.x = Iso.cam.x - vw / cam.z / 2; cam.y = Iso.cam.y - vh / cam.z / 2;
-  $('lvl').textContent = `Spielansicht · ${Iso.blick()}blick · ${fmt(Iso.pxProM(), 0)} px/m`;
+  $('lvl').textContent = `Spielansicht · ${Iso.blick()} · ${fmt(Iso.pxProM(), 0)} px/m`;
   $('busy').hidden = !(store.active || store.queue.length || fehlt);
   saveCam();
 }
