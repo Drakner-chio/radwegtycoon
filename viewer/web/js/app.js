@@ -1,6 +1,6 @@
 // Radweg Tycoon – Kachel-Viewer: Kamera, Detailstufen, Raster-Cache, Auswahl, Overlays.
 import { TileStore, isRoad } from './tiles.js';
-import { Spiel, AUSBAU, KNOTEN, gesamt, wendeAn, strassenzug } from './game.js';
+import { Spiel, AUSBAU, KNOTEN, gesamt, wendeAn, strassenzug, istZufahrt } from './game.js';
 import { lokalesNetz, pfad, knotenInfo, naechsteKreuzung } from './werkzeug.js';
 import { Verkehr } from './verkehr.js';
 import { Live } from './live.js';
@@ -526,6 +526,7 @@ function pickRoad(wx, wy) {
   if (pxProM() < .22) return null;
   let best = null, bd = 1e9;
   for (const t of loadedTiles(0)) for (const r of t.roads) {
+    if (istZufahrt(r.m0 || r.m)) continue; // Zufahrten sind nicht auswählbar
     const b = r.bb, h = r.half + 4;
     if (wx < b[0] - h || wx > b[2] + h || wy < b[1] - h || wy > b[3] + h) continue;
     const P = r.P;

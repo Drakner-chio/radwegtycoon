@@ -207,6 +207,8 @@ geschätzt ist.
   der Weg auf „seiner“ Straße bleibt). So fehlen keine kurzen Abschnitte an Kreuzungen. Straßenwerkzeuge
   laufen nur über Straßen, Wegwerkzeuge nur über Wege; Abschnitte, auf die der Ausbau nicht passt, werden
   angezeigt, aber nicht berechnet. „Ganze Straße“ übernimmt den Straßenzug des ersten Abschnitts.
+- Zufahrten (OSM `highway=service`, meist privat) sind weder auswählbar noch baubar; im Verkehrsmodell und auf der
+  Karte bleiben sie, damit Gebäude angebunden sind.
 - Kreuzungen: Ampel (150.000 €) und Kreisverkehr (650.000 €) als Knoten-Bauten im Spielstand (`knoten`),
   rückgängig wie Streckenausbauten. Wirkung: Live-Verkehr (Ampelphasen bzw. Kreisel mit Vorfahrt für Fahrzeuge
   von links und Tempo ~20), Verkehrsmodell über Knotenstrafen (gefühlte Meter fürs Queren: Hauptstraße 45,

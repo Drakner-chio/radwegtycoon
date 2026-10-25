@@ -36,9 +36,12 @@ export const AUSBAU = [
     gilt: m => isRoad(m) && ['dorf', 'wohn', 'L'].includes(m.cls) && (m.ms || 50) > 30,
     patch: m => ({ ms: 30 }) },
   { id: 'frs', art: 'strasse', name: 'Fahrradstraße', info: 'Rad hat Vorrang, Autos nur als Anlieger, Tempo 30.', proM: 15, fix: 6000,
-    gilt: m => isRoad(m) && ['dorf', 'wohn', 'zufahrt'].includes(m.cls) && !m.frs,
+    gilt: m => isRoad(m) && ['dorf', 'wohn'].includes(m.cls) && !m.frs,
     patch: m => ({ frs: 1, ms: 30, bike: 1 }) },
 ];
+// Zufahrten (OSM highway=service: Hof-, Grundstücks-, Parkplatzzufahrten) sind meist privat und nicht baubar.
+export const istZufahrt = m => m && m.cls === 'zufahrt';
+for (const a of AUSBAU) { const g = a.gilt; a.gilt = m => !istZufahrt(m) && g(m); }
 
 // Bauten an Kreuzungen. k: { grad, strassen, rang, ampel, kreisel, autobahn } aus dem geladenen Netz
 export const KNOTEN = [
