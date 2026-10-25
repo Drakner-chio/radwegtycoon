@@ -99,3 +99,4 @@ button.chip{cursor:pointer;font:inherit;font-size:11px}
 .kv dd .up,.kv dd .down{font-size:14px}
 .row-btns{flex-wrap:wrap}
 .jt{width:100%;border-collapse:collapse;font-size:12px;margin:4px 0}.jt th{font-family:var(--f-display);font-size:9px;color:var(--muted);text-align:right;font-weight:400}.jt td{text-align:right;font-family:var(--f-num);font-size:15px}.jt th:first-child,.jt td:first-child{text-align:left}
+.livebox{position:absolute;left:50%;bottom:26px;transform:translateX(-50%);font-family:var(--f-display);font-size:10px;color:#e8e2d2;background:rgba(16,23,19,.75);padding:3px 8px;white-space:nowrap;max-width:calc(100% - 120px);overflow:hidden;text-overflow:ellipsis}

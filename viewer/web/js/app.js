@@ -2,6 +2,7 @@
 import { TileStore, isRoad } from './tiles.js';
 import { Spiel, AUSBAU, gesamt, wendeAn, strassenzug } from './game.js';
 import { Verkehr } from './verkehr.js';
+import { Live } from './live.js';
 import { Painter, buildPatterns, hashStr, stroke, offsetLine, bikeValues, condColor, riskColor, drawCrossSection, clamp } from './render.js';
 
 const $ = id => document.getElementById(id);
@@ -47,6 +48,7 @@ async function start() {
   spiel.onChange = renderSpiel;
   setupSpiel();
   setupVerkehr();
+  $('t-live').onclick = () => setLive(!liveAn); setLive(liveAn);
   $('region').textContent = man.name;
   $('stand').textContent = man.osm_stand ? ' · OSM-Stand ' + new Date(man.osm_stand).toLocaleDateString('de-DE') : '';
   renderStats();
@@ -125,7 +127,49 @@ function renderChunk(L, i, j) {
 }
 
 /* ----------------------------- Zeichnen ----------------------------- */
-function frame() {
+/* ----------------------------- Live-Verkehr (Ebene 2) ----------------------------- */
+const live = new Live();
+let liveAn = true, liveRect = null, liveSig = '', liveBau = 0, liveLetzt = 0, liveInfoT = 0;
+try { liveAn = localStorage.getItem('rtc-live') !== '0'; } catch (e) {}
+const LIVE_MIN_Z = .3, LIVE_MAX_M = 3500;
+function liveAktiv() { return liveAn && man && cam.z >= LIVE_MIN_Z; }
+function liveNetz(now) {
+  const vx0 = cam.x, vy0 = cam.y, vx1 = cam.x + vw / cam.z, vy1 = cam.y + vh / cam.z;
+  const innen = liveRect && vx0 >= liveRect[0] - 20 && vy0 >= liveRect[1] - 20 && vx1 <= liveRect[2] + 20 && vy1 <= liveRect[3] + 20;
+  const tiles = loadedTiles(0), sig = tiles.length + ':' + (verkehr && verkehr.erg ? verkehr.erg.t : 0) + ':' + spiel.s.log.length + ':' + Object.keys(spiel.s.kanten).length;
+  if (innen && sig === liveSig) return;
+  if (now - liveBau < 700 && liveRect) return;
+  liveBau = now; liveSig = sig;
+  const cx = (vx0 + vx1) / 2, cy = (vy0 + vy1) / 2, hw = Math.min(LIVE_MAX_M, vx1 - vx0 + 300) / 2, hh = Math.min(LIVE_MAX_M, vy1 - vy0 + 300) / 2;
+  liveRect = [cx - hw, cy - hh, cx + hw, cy + hh];
+  const roads = [], signale = new Set();
+  for (const t of tiles) {
+    if (t.x1 < liveRect[0] || t.x0 > liveRect[2] || t.y1 < liveRect[1] || t.y0 > liveRect[3]) continue;
+    for (const r of t.roads) if (!(r.bb[2] < liveRect[0] || r.bb[0] > liveRect[2] || r.bb[3] < liveRect[1] || r.bb[1] > liveRect[3])) roads.push(r);
+    for (const n of t.nodes) if (n.f === 'traffic_signals' && !n.on) signale.add(n.id);
+  }
+  const radVol = id => { const v = verkehr && verkehr.erg ? verkehr.volumen(id) : null; return v === null ? 15 : v; };
+  live.bauen(roads, signale, radVol, liveRect);
+}
+function liveSchritt(now) {
+  const dt = Math.min(.25, (now - (liveLetzt || now)) / 1000); liveLetzt = now;
+  liveNetz(now);
+  for (let t = dt; t > 1e-6; t -= .05) live.schritt(Math.min(.05, t));
+  if (now - liveInfoT > 500) {
+    liveInfoT = now; const z = live.zahlen();
+    $('live').textContent = `${fmt(z.autos)} Autos · ${fmt(z.raeder)} Räder · eng überholt ${fmt(z.nahUeberholenH)}/h · Abbiegekonflikte ${fmt(z.abbiegenH)}/h`;
+  }
+}
+function setLive(an) {
+  liveAn = an; try { localStorage.setItem('rtc-live', an ? '1' : '0'); } catch (e) {}
+  $('t-live').setAttribute('aria-pressed', an); dirty = true;
+  if (!an) { live.agents = []; liveRect = null; $('live').hidden = true; }
+}
+
+function frame(now) {
+  const la = liveAktiv();
+  if (la) { liveSchritt(now); dirty = true; } else liveLetzt = 0;
+  $('live').hidden = !la;
   if (dirty) { dirty = false; draw(); if (man) updateSurvey(); }
   requestAnimationFrame(frame);
 }
@@ -156,6 +200,7 @@ function draw() {
   }
   vctx.setTransform(s, 0, 0, s, -cam.x * s, -cam.y * s);
   drawMask();
+  if (liveAktiv()) live.zeichnen(vctx, cam.z);
   if (overlay) drawOverlay(top);
   if (hover && hover !== selected) { vctx.lineCap = 'round'; stroke(vctx, hover.P, hover.half * 2 + 1.5, 'rgba(255,255,255,.28)'); }
   for (const z of zugSel) if (z !== selected) stroke(vctx, z.P, Math.max(z.half * 2 + 1, 2.5 / cam.z), 'rgba(255,226,90,.45)');
@@ -618,7 +663,7 @@ $('t-names').onclick = () => { showNames = !showNames; $('t-names').setAttribute
 window.addEventListener('keydown', e => {
   if (e.target.closest && e.target.closest('input')) return;
   const k = e.key.toLowerCase();
-  if (k === 'z') setOverlay('cond'); if (k === 's') setOverlay('risk'); if (k === 'r') setOverlay('net'); if (k === 't') setOverlay('route'); if (k === 'v') setOverlay('verkehr'); if (k === 'f') setOverlay('zuf'); if (k === 'n') $('t-names').click();
+  if (k === 'z') setOverlay('cond'); if (k === 's') setOverlay('risk'); if (k === 'r') setOverlay('net'); if (k === 't') setOverlay('route'); if (k === 'v') setOverlay('verkehr'); if (k === 'f') setOverlay('zuf'); if (k === 'l') setLive(!liveAn); if (k === 'n') $('t-names').click();
   if (k === '+' || k === '=') $('z-in').click(); if (k === '-') $('z-out').click();
   const pan = 120 / cam.z;
   if (k === 'arrowleft') cam.x -= pan; if (k === 'arrowright') cam.x += pan; if (k === 'arrowup') cam.y -= pan; if (k === 'arrowdown') cam.y += pan;

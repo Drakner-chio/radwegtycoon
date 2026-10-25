@@ -73,7 +73,7 @@ geschätzt ist.
 1. ~~Kachel-Viewer~~ erledigt: `viewer/` (siehe unten).
 2. Spiel auf dem Graphen: ~~Bauen pro Kante/Straßenzug~~ (Stufe 1 erledigt, `viewer/web/js/game.js`);
    Verkehr Ebene 1 (Nachfrage, Radrouten, Radanteil, Zufriedenheit, Jahresbudget) erledigt, siehe unten;
-   offen: Ebene 2 (sichtbare Autos/Räder mit Vorfahrt, Ampeln, Kreisverkehren), Autoverkehr im Modell, Eichung.
+   Ebene 2 (sichtbare Autos/Räder) erste Fassung erledigt; offen: Autoverkehr im Modell, Eichung, Linksabbiegen/Gegenverkehr.
 3. Grobe Ebene: Verkehrsströme zwischen Orten, geeicht mit Straßenverkehrszählung und Pendlerstatistik.
 4. Weitere Daten: Zensus-Raster (Einwohner), Unfallatlas (Radunfälle), Zählstellen.
 
@@ -127,3 +127,20 @@ geschätzt ist.
   Wege innerhalb einer Zelle und der Autoverkehr sind noch nicht modelliert. Alle Werte: `PARAM`.
 - Spielschleife: Ausbau → Neuberechnung (Anzeige der Änderung) → „Jahr abschließen“ bringt Einnahmen
   `400.000 € + 12.000 € × Zufriedenheit + 2 Mio. € × Radanteil` (Platzhalter bis zur Eichung).
+
+## Verkehr, Ebene 2: Live-Verkehr (`viewer/web/js/live.js`)
+
+- Läuft ab Zoom 0,3 px/m im sichtbaren Ausschnitt plus Rand (höchstens 3,5 × 3,5 km), Taste `L` schaltet.
+  Netz = Kanten der geladenen Detailkacheln (mit Ausbauten); wird beim Verschieben neu aufgebaut,
+  Fahrzeuge auf weiter bestehenden Kanten bleiben.
+- Mengen in der Spitzenstunde (10 % des Tages): Rad aus Ebene 1, Auto vorerst geschätzt nach Klasse
+  (`AUTO_TAG`, ±40 % per Hash der Way-ID). Ein- und Ausfahrt an Knoten außerhalb des Gebiets und an Sackgassen,
+  Abbiegen zufällig gewichtet nach den Mengen der abgehenden Kanten.
+- Folgemodell IDM je Spur (Auto-Spur und Radspur je Kante und Richtung, rechts der Fahrtrichtung versetzt:
+  Auto `cw/2`, Rad im Mischverkehr/Streifen am Fahrbahnrand, Hochbord `cw + 1,1 m`).
+- Vorfahrt: Ampel (zwei Phasen nach Achse, 26 s, 3 s Räumzeit, Radvorlauf 2 s), Kreisverkehr vor Einfahrt,
+  sonst Straßenrang (Fahrradstraße = Sammelstraße), gleicher Rang: rechts vor links. Knoten werden nach
+  einer Durchfahrt kurz für andere Zufahrten gesperrt; wer > 9 s (Rad 6 s) wartet, fährt.
+- Kennzahlen: „eng überholt“ (Auto überholt Rad auf gleicher Kante mit < 1,5 m Seitenabstand, nicht bei
+  Radfahrstreifen/Hochbord/Fahrradstraße) und „Abbiegekonflikte“ (Rechtsabbieger über Hochbord-Radweg,
+  während ein Rad weniger als 18 m entfernt ist), jeweils pro Stunde.
