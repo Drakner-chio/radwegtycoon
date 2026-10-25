@@ -98,3 +98,7 @@ geschätzt ist.
 - Kosten: €/m Länge (Fahrbahn erneuern: €/m² über `cw`), Pauschale einmal pro Auftrag.
 - Straßenzug: gleiche Bezeichnung (Name oder Nummer), über Knoten verbunden, in den geladenen Detailkacheln.
 - Wirkung: Risiko und Komfort aus `bikeValues()` vorher/nachher, längengewichtet.
+- Mehrfachauswahl: Umschalt + Klick sammelt Abschnitte, ein Auftrag baut alle aus.
+- Bestandsaufnahme pro Ort: nächster Ortsmittelpunkt zur Bildmitte (bis zum doppelten Radius je Rang:
+  Stadt 6 km, Kleinstadt 3 km, Dorf/Stadtteil 1,5 km, Weiler 0,7 km); gezählt werden eigene Kanten der
+  Detailkacheln im einfachen Radius, Ausbauten eingerechnet. Kachelindizes sind absolute UTM-Kilometer.

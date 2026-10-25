@@ -124,7 +124,7 @@ function renderChunk(L, i, j) {
 
 /* ----------------------------- Zeichnen ----------------------------- */
 function frame() {
-  if (dirty) { dirty = false; draw(); }
+  if (dirty) { dirty = false; draw(); if (man) updateSurvey(); }
   requestAnimationFrame(frame);
 }
 function draw() {
@@ -270,7 +270,7 @@ const SURF = { asphalt: 'Asphalt', concrete: 'Beton', concrete_plates: 'Betonpla
 const EST = { tempo: 'Tempo', gehweg: 'Gehweg', belag: 'Belag', zustand: 'Zustand', radweg_belag: 'Radwegbelag', radweg_zustand: 'Radwegzustand' };
 function condBar(label, v, sub, est) { const col = v >= 80 ? 'var(--ok)' : v >= 50 ? 'var(--warn)' : 'var(--bad)'; return `<div class="cond"><span>${label} <span class="lbl">${sub}</span>${est ? ' <span class="est">geschätzt</span>' : ''}</span><b>${Math.round(v)}</b><div class="bar"><s style="width:${v}%;background:${col}"></s></div></div>`; }
 function inspect(r) {
-  selected = r; dirty = true; if (!r) zugSel = [];
+  selected = r; dirty = true; if (!r) { zugSel = []; multi = []; }
   const el = $('inspect');
   if (!r) { $('insp-kind').textContent = ''; el.innerHTML = '<div class="insp-title">Nichts ausgewählt</div><div class="insp-sub">Nah heranzoomen und eine Straße oder einen Weg anklicken: Querschnitt, Belag, Zustand und die OSM-Daten.</div>'; return; }
   const m = r.m, bv = bikeValues(m), est = new Set(m.est || []);
@@ -306,30 +306,33 @@ function inspect(r) {
 
 /* ----------------------------- Spiel: Bauen ----------------------------- */
 const eur = v => fmt(v) + ' €';
-let zugModus = false, zugSel = [];
+let zugModus = false, zugSel = [], multi = [];
 function bauPanel(r) {
   const k = spiel.s.kanten[r.id];
   let h = '<div class="bau"><div class="lbl" style="margin:8px 0 4px">Ausbauen</div>';
   if (k) { const v0 = bikeValues(k.m0), v1 = bikeValues(r.m); h += `<div class="chip good" style="display:inline-block;margin-bottom:4px">Ausgebaut · Risiko ${Math.round(v0.risk * 100)} → ${Math.round(v1.risk * 100)}</div>`; }
-  const zug = zugModus ? strassenzug(store, r) : [r];
+  const zug = zugModus ? strassenzug(store, r) : multi.length > 1 ? multi : [r];
   zugSel = zug.length > 1 ? zug : [];
   const name = r.m.name || r.m.ref;
-  h += `<label class="zug"><input type="checkbox" id="zug" ${zugModus ? 'checked' : ''} ${name ? '' : 'disabled'}> ganzer Straßenzug${name ? ` (${zug.length} Abschnitte, ${fmt(zug.reduce((a, x) => a + x.len, 0) / 1000, 2)} km geladen)` : ' (ohne Namen)'}</label>`;
+  h += `<label class="zug"${multi.length > 1 && !zugModus ? ' hidden' : ''}><input type="checkbox" id="zug" ${zugModus ? 'checked' : ''} ${name ? '' : 'disabled'}> ganzer Straßenzug${name ? (zugModus ? ` (${zug.length} Abschnitte, ${fmt(zug.reduce((a, x) => a + x.len, 0) / 1000, 2)} km geladen)` : '') : ' (ohne Namen)'}</label>`;
   const opts = AUSBAU.map(a => { const z = zug.filter(x => a.gilt(x.m)); return { a, z, c: gesamt(a, z) }; }).filter(o => o.z.length);
   if (!opts.length) h += '<div class="note">Hier gibt es nichts auszubauen.</div>';
   h += opts.map(o => `<button class="bev bau-btn" data-bau="${o.a.id}" ${o.c > spiel.s.budget ? 'disabled' : ''} title="${esc(o.a.info)}"><span>${o.a.name}</span><b>${eur(o.c)}</b></button>`).join('');
+  if (multi.length > 1 && !zugModus) h = h.replace('<label class="zug"', `<div class="chip route" style="display:inline-block;margin-bottom:4px">${multi.length} Abschnitte markiert · ${fmt(multi.reduce((a, x) => a + x.len, 0) / 1000, 2)} km</div><label class="zug"`);
+  else h = h.replace('<label class="zug"', '<div class="note" style="margin-bottom:4px">Umschalt + Klick markiert weitere Abschnitte.</div><label class="zug"');
   return h + '</div>';
 }
 function baue(id) {
   if (!selected) return;
   const a = AUSBAU.find(x => x.id === id);
-  const zug = zugModus ? strassenzug(store, selected) : [selected];
-  const e = spiel.bauen(a, zug, selected.m.name || selected.m.ref || '');
+  const zug = zugModus ? strassenzug(store, selected) : multi.length > 1 ? multi : [selected];
+  const namen = [...new Set(zug.map(x => x.m.name || x.m.ref).filter(Boolean))];
+  const e = spiel.bauen(a, zug, namen.length === 1 ? namen[0] : namen.length ? namen.length + ' Straßen' : '');
   if (!e) return;
   nachBau(`${a.name}${e.name ? ' · ' + e.name : ''}: ${e.kanten.length} Abschnitt${e.kanten.length > 1 ? 'e' : ''} für ${eur(e.kosten)}`);
 }
 function nachBau(msg) {
-  wendeAn(store, spiel); chunks.clear(); dirty = true;
+  wendeAn(store, spiel); chunks.clear(); dirty = true; updateSurvey(true);
   if (selected) inspect(selected);
   if (msg) { $('bau-msg').textContent = msg; }
 }
@@ -347,21 +350,88 @@ function setupSpiel() {
   renderSpiel();
 }
 
+/* ----------------------------- Ort erkennen ----------------------------- */
+// Ort = nächster Ortsmittelpunkt zur Bildmitte, innerhalb eines Radius je nach Rang.
+// Bestandsaufnahme für den Ort aus den Detailkacheln (eigene Kanten, Ausbauten eingerechnet).
+const ORT_R = { 1: 6000, 2: 3000, 3: 1500, 4: 700 };
+let ortAktuell = null, ortT = 0;
+function findeOrt() {
+  if (!man.orte || cam.z < LEVELS[2].minZ) return null;
+  const E0 = man.bbox_utm[0], N0 = man.bbox_utm[3];
+  const cx = cam.x + vw / cam.z / 2, cy = cam.y + vh / cam.z / 2;
+  let best = null, bq = 2; // bis zum doppelten Radius: man ist „bei“ diesem Ort
+  for (const p of man.orte) {
+    const R = ORT_R[p.rang]; if (!R) continue;
+    const q = Math.hypot(p.e - E0 - cx, N0 - p.n - cy) / R;
+    if (q < bq) { bq = q; best = { ...p, x: p.e - E0, y: N0 - p.n, R }; }
+  }
+  return best;
+}
+function radinfraLabel(m) {
+  const fac = Math.max(m.fac_l || 0, m.fac_r || 0);
+  let l = { 3: 'hochbord', 2: 'radstreifen', 1: 'schutzstreifen' }[fac] || 'mischverkehr';
+  if (m.bike === 2) l = 'radweg_daneben'; if (m.frs) l = 'fahrradstrasse';
+  return l;
+}
+function ortStatistik(o) {
+  const T = man.tile_size_m[0];
+  let soll = 0, da = 0; const st = {}; const add = (k, v) => st[k] = (st[k] || 0) + v;
+  // Kachelindizes sind absolute UTM-Kilometer (Ost, Nord)
+  for (let iy = Math.floor((o.n - o.R) / T); iy <= Math.floor((o.n + o.R) / T); iy++)
+    for (let ix = Math.floor((o.e - o.R) / T); ix <= Math.floor((o.e + o.R) / T); ix++) {
+      if (!store.exists(0, ix, iy)) continue; soll++;
+      const t = store.get(0, ix, iy); if (!t) continue; da++;
+      for (const r of t.roads) {
+        if (!r.own) continue;
+        const mx = (r.bb[0] + r.bb[2]) / 2, my = (r.bb[1] + r.bb[3]) / 2;
+        if (Math.hypot(mx - o.x, my - o.y) > o.R) continue;
+        const m = r.m, km = r.len / 1000;
+        add('klasse:' + m.cls, km);
+        if (['L', 'dorf', 'wohn', 'spiel'].includes(m.cls)) { add('strassen', km); add('radinfra:' + radinfraLabel(m), km); if ((m.ms || 50) <= 30) add('tempo30', km); }
+        if (m.cls === 'rad') add('radwege_eigen', km);
+        if (m.bike !== 0 && m.cls !== 'auto') { const h = Math.max(m.fac_l || 0, m.fac_r || 0) === 3; add('belag:' + (h ? m.tsurf : m.surf), km); add('_zs', km * ((h ? m.tcond : m.cond) ?? 50)); add('_zk', km); }
+      }
+    }
+  st.zustand_rad_mittel = st._zk ? Math.round(st._zs / st._zk * 10) / 10 : null;
+  return { st, soll, da };
+}
+function surveyKopf(titel, st, extra) {
+  const k = [['Straßen', fmt(st.strassen || 0, 1) + ' km'], ['Tempo ≤ 30', st.strassen ? Math.round((st.tempo30 || 0) / st.strassen * 100) + ' %' : '–'], ['Ø Zustand Rad', st.zustand_rad_mittel != null ? fmt(st.zustand_rad_mittel, 1) : '–']];
+  return `<div class="insp-title">${esc(titel)}</div>${extra || ''}<dl class="kv">${k.map(x => `<dt>${x[0]}</dt><dd>${x[1]}</dd>`).join('')}</dl>`;
+}
+function updateSurvey(force) {
+  const now = performance.now(); if (!force && now - ortT < 400) return; ortT = now;
+  const o = findeOrt();
+  if (!o) {
+    if (ortAktuell !== 'region') { ortAktuell = 'region'; $('survey-ort').textContent = 'ganze Region'; $('survey').innerHTML = regionSurvey(); }
+    return;
+  }
+  const { st, soll, da } = ortStatistik(o);
+  const sig = o.name + o.e + ':' + da + ':' + spiel.s.log.length;
+  if (!force && sig === ortAktuell) return; ortAktuell = sig;
+  $('survey-ort').textContent = o.name;
+  const hinweis = da < soll ? `<div class="note">Lade Ortsdaten … ${da}/${soll} Kacheln</div>` : `<div class="note">Umkreis ${fmt(o.R / 1000, 1)} km um den Ortsmittelpunkt, Ausbauten eingerechnet.</div>`;
+  $('survey').innerHTML = surveyKopf(o.name, st, hinweis) + surveyBars(st);
+}
+
 /* ----------------------------- Panels ----------------------------- */
+let regionSurvey = () => '';
+const RADINFRA = { mischverkehr: 'Mischverkehr', radweg_daneben: 'Radweg daneben', hochbord: 'Hochbord-Radweg', radstreifen: 'Radfahrstreifen', schutzstreifen: 'Schutzstreifen', fahrradstrasse: 'Fahrradstraße' };
+function barsOf(st, title, prefix, labels) {
+  const rows = Object.entries(st).filter(([k]) => k.startsWith(prefix)).map(([k, v]) => [labels ? (labels[k.slice(prefix.length)] || k.slice(prefix.length)) : k.slice(prefix.length), v]).sort((a, b) => b[1] - a[1]).slice(0, 8);
+  const tot = rows.reduce((a, r) => a + r[1], 0) || 1;
+  if (!rows.length) return '';
+  return `<div class="lbl" style="margin:8px 0 4px">${title}</div><div class="bars">${rows.map(([k, v]) => `<div class="row"><span>${esc(k)}</span><i style="width:${Math.max(2, v / tot * 100)}%"></i><b>${fmt(v, v < 10 ? 1 : 0)} km</b></div>`).join('')}</div>`;
+}
 function renderStats() {
   const st = man.statistik || {};
   const facts = [['Straßen', fmt(st.strassen || 0, 0) + ' km'], ['Eigene Radwege', fmt(st.radwege_eigen || 0, 0) + ' km'], ['Tempo ≤ 30', st.strassen ? Math.round((st.tempo30 || 0) / st.strassen * 100) + ' %' : '–'],
     ['Gebäude', fmt(st.gebaeude || 0)], ['Ø Zustand Rad', st.zustand_rad_mittel ?? '–']];
   $('facts').innerHTML = facts.map(f => `<div class="fact"><span class="lbl">${f[0]}</span><b>${f[1]}</b></div>`).join('');
-  const bars = (title, prefix, labels) => {
-    const rows = Object.entries(st).filter(([k]) => k.startsWith(prefix)).map(([k, v]) => [labels ? (labels[k.slice(prefix.length)] || k.slice(prefix.length)) : k.slice(prefix.length), v]).sort((a, b) => b[1] - a[1]).slice(0, 8);
-    const tot = rows.reduce((a, r) => a + r[1], 0) || 1;
-    return `<div class="lbl" style="margin:8px 0 4px">${title}</div><div class="bars">${rows.map(([k, v]) => `<div class="row"><span>${esc(k)}</span><i style="width:${Math.max(2, v / tot * 100)}%"></i><b>${fmt(v, 0)} km</b></div>`).join('')}</div>`;
-  };
-  $('survey').innerHTML =
-    bars('Radinfrastruktur an Straßen', 'radinfra:', { mischverkehr: 'Mischverkehr', radweg_daneben: 'Radweg daneben', hochbord: 'Hochbord-Radweg', radstreifen: 'Radfahrstreifen', schutzstreifen: 'Schutzstreifen', fahrradstrasse: 'Fahrradstraße' }) +
-    bars('Belag, wo Räder fahren dürfen', 'belag:', SURF) +
-    bars('Straßen und Wege nach Art', 'klasse:', CLS);
+  regionSurvey = () => surveyBars(st);
+}
+function surveyBars(st) {
+  return barsOf(st, 'Radinfrastruktur an Straßen', 'radinfra:', RADINFRA) + barsOf(st, 'Belag, wo Räder fahren dürfen', 'belag:', SURF) + barsOf(st, 'Straßen und Wege nach Art', 'klasse:', CLS);
 }
 function setupSearch() {
   const dl = $('orte');
@@ -412,7 +482,14 @@ view.addEventListener('pointermove', e => {
 function endP(e) {
   if (!pointers.has(e.pointerId)) return; const p = pointers.get(e.pointerId); pointers.delete(e.pointerId);
   if (pinch) { if (pointers.size < 2) pinch = null; return; }
-  if (!moved && down && man) { const r = pickRoad(cam.x + p.x / cam.z, cam.y + p.y / cam.z); inspect(r); if (!r && cam.z < .22) zoomAt(Math.min(cam.z * 3, 1.2), p.x, p.y); }
+  if (!moved && down && man) { const r = pickRoad(cam.x + p.x / cam.z, cam.y + p.y / cam.z);
+    if (e.shiftKey && r && selected) {
+      if (!multi.length) multi = [selected];
+      const k = multi.findIndex(x => x.id === r.id);
+      if (k >= 0) multi.splice(k, 1); else multi.push(r);
+      zugModus = false;
+      inspect(multi.length ? multi[multi.length - 1] : null);
+    } else { multi = []; inspect(r); } if (!r && cam.z < .22) zoomAt(Math.min(cam.z * 3, 1.2), p.x, p.y); }
   down = null;
 }
 view.addEventListener('pointerup', endP); view.addEventListener('pointercancel', endP);
