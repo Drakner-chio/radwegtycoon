@@ -37,6 +37,10 @@ QUELLEN = {
 
 
 # ---------------------------------------------------------------- Hilfen
+def tsd(v) -> str:
+    return f"{v:,}".replace(",", ".")
+
+
 def hole(url: str, ziel: pathlib.Path, pflicht: bool = True) -> pathlib.Path | None:
     if ziel.exists():
         return ziel
@@ -182,7 +186,7 @@ def zensus_zellen(zip_pfad: pathlib.Path, bbox_utm, rand: float = 600.0) -> dict
         if x0 - rand <= e <= x1 + rand and y0 - rand <= nn <= y1 + rand and ew > 0:
             out[(e, nn)] = ew
             n += ew
-    log(f"Daten: Zensus – {len(out):,} bewohnte 100-m-Zellen, {round(n):,} Einwohner im Gebiet".replace(",", "."))
+    log(f"Daten: Zensus – {tsd(len(out))} bewohnte 100-m-Zellen, {tsd(round(n))} Einwohner im Gebiet")
     return out
 
 
@@ -325,7 +329,7 @@ def bauen_daten(karte: pathlib.Path, quellen: pathlib.Path, was=("zensus", "unfa
             ew = sum(netz["zonen"]["ew"])
             man["statistik"]["einwohner_zensus"] = round(ew)
             info["zensus"] = {"quelle": QUELLEN["zensus"], "einwohner": round(ew), "neue_zellen": neu}
-            log(f"Daten: Einwohner aus Zensus übernommen ({round(ew):,}, {neu} neue Zellen)".replace(",", "."))
+            log(f"Daten: Einwohner aus Zensus übernommen ({tsd(round(ew))}, {neu} neue Zellen)")
 
     if "unfaelle" in was or "verkehrswerte" in was:
         kanten = kanten_aus_kacheln(karte, man)

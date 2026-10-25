@@ -128,6 +128,9 @@ export class Verkehr {
   maske() { if (!this.gebiet) return null; const g = this.gebiet, m = new Uint8Array(this.nZ); for (let z = 0; z < this.nZ; z++) m[z] = Math.hypot(this.Z.x[z] - g.x, this.Z.y[z] - g.y) <= g.r ? 1 : 0; return m; }
   einwohner(g = this.gebiet) { let s = 0; for (let z = 0; z < this.nZ; z++) if (!g || Math.hypot(this.Z.x[z] - g.x, this.Z.y[z] - g.y) <= g.r) s += this.Z.ew[z]; return s; }
   knotenPos(id) { const v = this.kid && this.kid.get(id); return v === undefined ? null : [this.kx[v], this.ky[v]]; }
+  // Echte Daten je Kante (Pipeline-Schritt „daten“): gezählter Kfz-Verkehr und Radunfälle
+  dtv(id) { const e = this.idx && this.idx.get(id), K = this.netz && this.netz.kanten; if (e === undefined || !K || !K.dtv || K.dtv[e] < 0) return null; return { kfz: K.dtv[e], sv: K.dtv_sv[e] }; }
+  unfaelle(id) { const e = this.idx && this.idx.get(id), K = this.netz && this.netz.kanten; if (e === undefined || !K || !K.unf_rad) return null; return { rad: K.unf_rad[e], schwer: K.unf_rad_schwer[e] }; }
   volumen(id) { const e = this.idx && this.idx.get(id); return e === undefined || !this.erg ? null : this.erg.vol[e]; }
   // Kennzahlen für einen Kreis (Ortsansicht)
   imKreis(x, y, R) {

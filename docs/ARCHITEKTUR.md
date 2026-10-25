@@ -216,3 +216,18 @@ geschätzt ist.
   (`rtc-save-<slug>-<n>`) mit Metadaten, Export/Import als JSON-Datei (Sicherung, anderer Rechner).
 - Spielansicht genordet (Drehung 45° + k·90°), Schutz-/Radfahrstreifen verbreitern schmale Fahrbahnen
   auf 7 bzw. 8 m (160 € je m Länge und m Mehrbreite).
+
+## Echte Daten (`pipeline/rtc/daten.py`, Schritt `daten`)
+
+| Quelle | Inhalt | Verwendung im Spiel |
+|---|---|---|
+| Zensus 2022, 100-m-Gitter (Destatis, dl-de/by-2-0) | Einwohner je Zelle (EPSG:3035) | Einwohner der Verkehrszellen statt Gebäudeschätzung; Startkapital, Einnahmen |
+| Unfallatlas (Statistische Ämter, dl-de/by-2-0) | Unfälle mit Personenschaden, punktgenau, NRW ab 2019 | Ebene „Unfälle“ (X), Radunfälle je Kante im Info-Fenster; später Eichung des Risikos |
+| Verkehrswerte Straßen.NRW (dl-de/by-2-0) | DTV Kfz und Schwerverkehr je Abschnitt (B, L, K) | Kfz/Tag im Info-Fenster, Mengen im Live-Verkehr; später Eichung des Autoverkehrs |
+
+- Downloads landen in `/data/quellen/{zensus,unfallatlas,strassen_nrw}` und werden wiederverwendet.
+- Zuordnung: Zensus-Zellen per Koordinatenumrechnung zu den 500-m-Zellen; Unfälle zur nächsten Kante bis 30 m
+  (Radunfälle bevorzugt auf befahrbare Kanten); Verkehrswerte per Lage (bis 22 m), Richtung (< 30°) und
+  Straßennummer an drei Punkten jeder Kante.
+- Reihenfolge in `alles`: bauen → daten → hoehe. `netz` rechnet Daten und Höhen automatisch wieder ein.
+- Das Quellen-Fenster im Spiel („Weitere Quellen“) nennt alle Lizenzen.

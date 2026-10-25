@@ -121,3 +121,12 @@ Wird vom Schritt `netz` aus den Detailkacheln erzeugt; `manifest.json` bekommt e
 Int16 little-endian in Dezimetern, Zeilen von Nord nach Süd, Werte sind Zellmittel; −32768 = fehlt.
 `manifest.json` → `hoehe`: `quelle`, `zellen`, `raster_m`, `tiles` je Stufe, `min`, `max`, `fehlt`;
 `statistik.hoehe_min` / `hoehe_max`.
+
+## Echte Daten (Schritt `daten`)
+
+- `netz.json.gz`: `ew_quelle` (`zensus2022`), Kanten `unf_rad`, `unf_rad_schwer` (Radunfälle im Zeitraum),
+  `dtv`, `dtv_sv` (Kfz bzw. Schwerverkehr je Tag, −1 = keine Zählung).
+- `unfaelle.json.gz`: `quelle`, `jahre`, `punkte` (Spalten): `x`, `y` (Welt-m), `kante` (Index im Netz, −1 = keine),
+  `jahr`, `monat`, `stunde`, `wtag`, `kat` (1 Getötete, 2 Schwer-, 3 Leichtverletzte), `art`, `typ`, `licht`,
+  `rad`, `pkw`, `fuss`, `krad`, `gkfz`, `sonst`, `nass` (Codes wie im Unfallatlas).
+- `manifest.json` → `daten`: je Quelle `quelle` (Lizenztext) und Kennzahlen.

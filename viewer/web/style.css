@@ -218,3 +218,4 @@ body:not(.iso) .nur-iso{display:none}
 .gw-radius input{flex:1;accent-color:var(--accent)}
 .gw-radius b{min-width:78px;text-align:right;font-variant-numeric:tabular-nums}
 body.wahl .tools,body.wahl .views,body.wahl .side,body.wahl .stats,body.wahl .legend,body.wahl .livebox{display:none}
+.quellen-btn{background:none;border:0;color:var(--sign);cursor:pointer;font-size:10px;padding:0;text-decoration:underline}

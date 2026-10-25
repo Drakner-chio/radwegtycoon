@@ -5,6 +5,7 @@ import { lokalesNetz, pfad, knotenInfo, naechsteKreuzung } from './werkzeug.js';
 import { Verkehr } from './verkehr.js';
 import { Live } from './live.js';
 import { Hoehen } from './hoehe.js';
+import { ladeJsonGz } from './verkehr-modell.js';
 import * as Iso from './isoansicht.js';
 import * as Speicher from './speicher.js';
 import { Painter, buildPatterns, hashStr, stroke, offsetLine, bikeValues, condColor, riskColor, drawCrossSection, clamp } from './render.js';
@@ -52,7 +53,6 @@ async function start() {
   store = new TileStore(base, man, () => { dirty = true; });
   hoehen = new Hoehen(base, man); hoehen.onLoad = () => { dirty = true; };
   try { reliefAn = localStorage.getItem('rtc-relief') !== '0'; } catch (e) {}
-  if (man.hoehe) document.querySelector('.attr').insertAdjacentHTML('beforeend', ' · Höhen © ' + esc(man.hoehe.quelle.replace(/ \(.*\)$/, '')));
   spiel = new Spiel(man.slug);
   store.patchFor = id => spiel.patchFor(id);
   spiel.onChange = renderSpiel;
@@ -180,7 +180,7 @@ function liveNetz(now) {
   const radVol = id => { const v = verkehr && verkehr.erg ? verkehr.volumen(id) : null; return v === null ? 15 : v; };
   const kreisel = new Set();
   for (const [id, k] of Object.entries(spiel.s.knoten)) { if (k.ampel) signale.add(Number(id)); if (k.kreisel) kreisel.add(Number(id)); }
-  live.bauen(roads, signale, radVol, liveRect, kreisel);
+  live.bauen(roads, signale, radVol, liveRect, kreisel, id => { const d = verkehr && verkehr.netz ? verkehr.dtv(id) : null; return d ? d.kfz : null; });
 }
 function liveSchritt(now) {
   const dt = Math.min(.25, (now - (liveLetzt || now)) / 1000); liveLetzt = now;
@@ -368,6 +368,55 @@ function drawSteigung(top) {
   }
   vctx.lineCap = 'round'; paths.forEach((p, k) => { vctx.lineWidth = (k >= 3 ? 3.5 : 2.5) * wpx; vctx.strokeStyle = STEIG[k][1]; vctx.stroke(p); });
 }
+// Unfälle (Unfallatlas): Punkte nach Schwere; Filter nur Rad / alle
+let unfDaten = null, unfLaedt = false, unfNurRad = true;
+const UNF_FARBE = { 1: '#ff2d55', 2: '#ff8a1e', 3: '#ffd23a' };
+const UNF_ART = { 1: 'Zusammenstoß mit anfahrendem/haltendem Fahrzeug', 2: 'Auffahrunfall', 3: 'Seitenstreifen (gleiche Richtung)', 4: 'Gegenverkehr', 5: 'Einbiegen/Kreuzen', 6: 'Fußgänger', 7: 'Aufprall auf Hindernis', 8: 'Abkommen rechts', 9: 'Abkommen links', 0: 'Sonstiges' };
+const UNF_TYP = { 1: 'Fahrunfall', 2: 'Abbiegeunfall', 3: 'Einbiegen/Kreuzen', 4: 'Überschreiten', 5: 'ruhender Verkehr', 6: 'Längsverkehr', 7: 'sonstiger Unfall' };
+function ladeUnfaelle() {
+  if (unfDaten || unfLaedt || !man.daten || !man.daten.unfaelle) return; unfLaedt = true;
+  ladeJsonGz(base + man.daten.unfaelle.datei + '?v=' + encodeURIComponent(man.daten.unfaelle.anzahl + '-' + man.erstellt)).then(d => { unfDaten = d; dirty = true; legendeUnfaelle(); }).catch(() => { unfLaedt = false; });
+}
+function legendeUnfaelle() {
+  if (overlay !== 'unf') return;
+  const u = man.daten && man.daten.unfaelle, lg = $('legend');
+  if (!u) { lg.innerHTML = '<div class="lbl">Unfälle</div><div class="hint">Keine Unfalldaten – Pipeline-Schritt „daten“ ausführen.</div>'; return; }
+  lg.innerHTML = `<div class="lbl">Unfälle mit Personenschaden ${u.jahre[0]}–${u.jahre[u.jahre.length - 1]}</div><div class="keys"><i style="background:${UNF_FARBE[1]};height:9px;width:9px;border-radius:50%"></i><span>mit Getöteten</span><i style="background:${UNF_FARBE[2]};height:8px;width:8px;border-radius:50%"></i><span>Schwerverletzte</span><i style="background:${UNF_FARBE[3]};height:6px;width:6px;border-radius:50%"></i><span>Leichtverletzte</span></div>
+    <div class="seg small" style="margin-top:6px"><button data-unf="rad" aria-pressed="${unfNurRad}">Nur mit Rad (${fmt(u.rad)})</button><button data-unf="alle" aria-pressed="${!unfNurRad}">Alle (${fmt(u.anzahl)})</button></div><div class="hint">Quelle: Unfallatlas. Punkt anklicken für Details.</div>`;
+}
+$('legend').addEventListener('click', e => { const b = e.target.closest('[data-unf]'); if (!b) return; unfNurRad = b.dataset.unf === 'rad'; legendeUnfaelle(); dirty = true; });
+function drawUnfaelle() {
+  ladeUnfaelle(); if (!unfDaten) return;
+  const P = unfDaten.punkte, n = P.x.length, s = 1 / cam.z;
+  vctx.fillStyle = 'rgba(12,20,16,.4)'; vctx.fillRect(cam.x, cam.y, vw / cam.z, vh / cam.z);
+  const vx0 = cam.x, vy0 = cam.y, vx1 = cam.x + vw / cam.z, vy1 = cam.y + vh / cam.z;
+  for (const kat of [3, 2, 1]) {
+    vctx.fillStyle = UNF_FARBE[kat]; vctx.strokeStyle = 'rgba(0,0,0,.55)'; vctx.lineWidth = s;
+    const r = (kat === 1 ? 5 : kat === 2 ? 4 : 2.6) * s * (cam.z > 1 ? 1.4 : 1);
+    vctx.beginPath();
+    for (let i = 0; i < n; i++) {
+      if (P.kat[i] !== kat || (unfNurRad && !P.rad[i])) continue;
+      const x = P.x[i], y = P.y[i]; if (x < vx0 || x > vx1 || y < vy0 || y > vy1) continue;
+      vctx.moveTo(x + r, y); vctx.arc(x, y, r, 0, Math.PI * 2);
+    }
+    vctx.fill(); vctx.stroke();
+  }
+}
+function pickUnfall(wx, wy) {
+  if (!unfDaten) return null; const P = unfDaten.punkte, tol = 8 / cam.z; let best = -1, bd = tol * tol;
+  for (let i = 0; i < P.x.length; i++) { if (unfNurRad && !P.rad[i]) continue; const d = (P.x[i] - wx) ** 2 + (P.y[i] - wy) ** 2; if (d < bd) { bd = d; best = i; } }
+  return best;
+}
+function zeigeUnfall(i) {
+  const P = unfDaten.punkte, beteiligt = [['rad', 'Rad'], ['pkw', 'Pkw'], ['fuss', 'Fußgänger'], ['krad', 'Motorrad'], ['gkfz', 'Lkw'], ['sonst', 'Sonstige']].filter(([k]) => P[k][i]).map(([, t]) => t);
+  const tag = ['', 'So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'][P.wtag[i]] || '';
+  selected = null; zeigeReiter('info'); $('insp-kind').textContent = 'Unfall';
+  $('inspect').innerHTML = `<div class="insp-title" style="color:${UNF_FARBE[P.kat[i]]}">${['', 'Unfall mit Getöteten', 'Unfall mit Schwerverletzten', 'Unfall mit Leichtverletzten'][P.kat[i]]}</div>
+    <div class="insp-sub">${String(P.monat[i]).padStart(2, '0')}/${P.jahr[i]} · ${tag} ${P.stunde[i]} Uhr · ${['Tageslicht', 'Dämmerung', 'Dunkelheit'][P.licht[i]] || ''}${P.nass[i] ? ' · Straße nass/glatt' : ''}</div>
+    <dl class="kv"><dt>Unfalltyp</dt><dd>${UNF_TYP[P.typ[i]] || '–'}</dd><dt>Unfallart</dt><dd>${UNF_ART[P.art[i]] || '–'}</dd><dt>Beteiligt</dt><dd>${beteiligt.join(', ') || '–'}</dd></dl>
+    <div class="note">Quelle: Unfallatlas der Statistischen Ämter des Bundes und der Länder (dl-de/by-2-0).</div>`;
+  dirty = true;
+}
 function drawZufrieden() {
   if (!verkehr || !verkehr.erg) return;
   const Z = verkehr.Z, h = verkehr.zelle / 2, e = verkehr.erg;
@@ -395,7 +444,7 @@ const pkt = v => (v >= 0 ? '+' : '−') + fmt(Math.abs(v), 1);
 function renderVerkehr(e, v) {
   const d = v ? ` <span class="${e.anteil >= v.anteil ? 'up' : 'down'}">${pkt((e.anteil - v.anteil) * 100)}</span>` : '';
   const dz = v ? ` <span class="${e.zufrieden >= v.zufrieden ? 'up' : 'down'}">${pkt(e.zufrieden - v.zufrieden)}</span>` : '';
-  $('verkehr').innerHTML = `<dl class="kv"><dt>Radanteil</dt><dd>${fmt(e.anteil * 100, 1)} %${d}</dd><dt>Radfahrten am Tag</dt><dd>${fmt(e.rad)}</dd><dt>Rad-km am Tag</dt><dd>${fmt(e.radKm)}</dd><dt>Zufriedenheit</dt><dd>${fmt(e.zufrieden, 1)}${dz}</dd><dt>Einwohner im Spielgebiet</dt><dd>${fmt(e.ew || verkehr.ewSumme)}</dd></dl>`;
+  $('verkehr').innerHTML = `<dl class="kv"><dt>Radanteil</dt><dd>${fmt(e.anteil * 100, 1)} %${d}</dd><dt>Radfahrten am Tag</dt><dd>${fmt(e.rad)}</dd><dt>Rad-km am Tag</dt><dd>${fmt(e.radKm)}</dd><dt>Zufriedenheit</dt><dd>${fmt(e.zufrieden, 1)}${dz}</dd><dt>Einwohner im Spielgebiet${verkehr.netz && verkehr.netz.ew_quelle === 'zensus2022' ? ' (Zensus 2022)' : ' (geschätzt)'}</dt><dd>${fmt(e.ew || verkehr.ewSumme)}</dd></dl>`;
   $('vk-status').textContent = `berechnet in ${fmt(e.ms / 1000, 1)} s · Werte sind Modellschätzungen`;
   $('top-anteil').innerHTML = `${fmt(e.anteil * 100, 1)} %${v ? ` <span class="${e.anteil >= v.anteil ? 'up' : 'down'}" style="font-size:12px">${pkt((e.anteil - v.anteil) * 100)}</span>` : ''}`;
   $('top-zuf').innerHTML = `${fmt(e.zufrieden, 0)}${v ? ` <span class="${e.zufrieden >= v.zufrieden ? 'up' : 'down'}" style="font-size:12px">${pkt(e.zufrieden - v.zufrieden)}</span>` : ''}`;
@@ -411,6 +460,7 @@ function drawOverlay(top) {
   if (overlay === 'verkehr') return drawVerkehr(top);
   if (overlay === 'zuf') return drawZufrieden();
   if (overlay === 'steig') return drawSteigung(top);
+  if (overlay === 'unf') return drawUnfaelle();
   for (const t of loadedTiles(lod)) for (const r of t.roads) {
     if (lod === 0 && !r.own) continue;
     const m = r.m; let col = null;
@@ -514,7 +564,8 @@ function inspect(r) {
   if (m.routes) h += `<div class="chips">${m.routes.map(n => `<button class="chip route${routeSel === n ? ' on' : ''}" data-route="${esc(n)}" title="Route auf der Karte hervorheben"><i style="background:${routeColor(n)}"></i>${esc(n)}</button>`).join('')}</div>`;
   if (routeSel && m.routes && m.routes.includes(routeSel)) { const rk = routeKanten(routeSel); h += `<button class="bev bau-btn" data-route-mark="1"><span>Route „${esc(routeSel)}“ markieren</span><b>${rk.length} Abschn.</b></button><div class="note">Markiert alle geladenen Abschnitte (${fmt(rk.reduce((a, x) => a + x.len, 0) / 1000, 1)} km). Mehr laden: herauszoomen bis „Ort“.</div>`; }
   const vol = verkehr ? verkehr.volumen(r.id) : null, stg = verkehr && verkehr.netz ? verkehr.steigung(r.id) : null;
-  if (bv.use || vol || stg) h += `<dl class="kv">${bv.use ? `<dt>Risiko fürs Rad</dt><dd>${Math.round(bv.risk * 100)} / 100</dd><dt>Fahrkomfort</dt><dd>${Math.round(bv.comfort * 100)} %</dd>` : ''}${vol !== null ? `<dt>Radverkehr (Modell)</dt><dd>${fmt(vol)} / Tag</dd>` : ''}${stg ? `<dt>Steigung</dt><dd>bis ${fmt(stg.steil, 1)} % · ↗ ${fmt(stg.auf)} / ↘ ${fmt(stg.ab)} Hm</dd>` : ''}</dl>`;
+  const dtv = verkehr && verkehr.netz ? verkehr.dtv(r.id) : null, unf = verkehr && verkehr.netz ? verkehr.unfaelle(r.id) : null, jahre = man.daten && man.daten.unfaelle ? man.daten.unfaelle.jahre : null;
+  if (bv.use || vol || stg || dtv || unf) h += `<dl class="kv">${bv.use ? `<dt>Risiko fürs Rad</dt><dd>${Math.round(bv.risk * 100)} / 100</dd><dt>Fahrkomfort</dt><dd>${Math.round(bv.comfort * 100)} %</dd>` : ''}${vol !== null ? `<dt>Radverkehr (Modell)</dt><dd>${fmt(vol)} / Tag</dd>` : ''}${stg ? `<dt>Steigung</dt><dd>bis ${fmt(stg.steil, 1)} % · ↗ ${fmt(stg.auf)} / ↘ ${fmt(stg.ab)} Hm</dd>` : ''}${dtv ? `<dt>Kfz/Tag (Zählung)</dt><dd>${fmt(dtv.kfz)} · Schwerverkehr ${fmt(dtv.sv / Math.max(1, dtv.kfz) * 100, 0)} %</dd>` : ''}${unf && jahre ? `<dt>Radunfälle ${jahre[0]}–${jahre[jahre.length - 1]}</dt><dd>${unf.rad ? `<b style="color:${unf.schwer ? 'var(--bad)' : 'var(--warn)'}">${unf.rad}</b>${unf.schwer ? ` (${unf.schwer} schwer)` : ''}` : 'keine'}</dd>` : ''}</dl>`;
   if (est.size) h += `<div class="est">Geschätzt, weil in OSM nicht eingetragen: ${[...est].map(e => EST[e] || e).join(', ')}</div>`;
   const skip = new Set(['name', 'ref', 'est', 'routes']);
   h += `<details class="raw"><summary>Spielmodell (alle Felder)</summary><dl class="kv">${Object.entries(m).filter(([k]) => !skip.has(k)).map(([k, v]) => `<dt>${k}</dt><dd>${esc(Array.isArray(v) ? v.join(', ') : v)}</dd>`).join('')}</dl></details>`;
@@ -712,9 +763,10 @@ function setOverlay(o) {
   if (overlay === 'net') lg.innerHTML = '<div class="lbl">Radnetz</div><div class="keys"><i style="background:#e0563a"></i><span>Radweg / Fahrradstraße</span><i style="background:#f08a3a"></i><span>Hochbord-Radweg</span><i style="background:#f2c230"></i><span>Rad-/Schutzstreifen</span><i style="background:#9cc23e"></i><span>Tempo ≤ 30, Mischverkehr</span><i style="background:#9a9fa6"></i><span>Tempo 50+, Mischverkehr</span><i style="background:#7e8279"></i><span>Radweg daneben</span><i style="background:#c7b287"></i><span>Feld- und Waldweg</span><i style="background:rgba(31,90,166,.55);height:8px"></i><span>Ausgeschilderte Radroute</span></div>';
   if (overlay === 'route') { routeSig = ''; lg.innerHTML = ''; }
   if (overlay === 'verkehr') lg.innerHTML = `<div class="lbl">Radfahrten pro Tag (Modell)</div><div class="keys">${VK_KL.map((k, i) => `<i style="background:${k[1]};height:${Math.max(3, k[2])}px"></i><span>${i < VK_KL.length - 1 ? `${k[0]}–${VK_KL[i + 1][0]}` : `ab ${k[0]}`}</span>`).join('')}</div><div class="hint">Wege zwischen Wohnorten und Zielen, umgelegt auf die angenehmsten Radrouten.</div>`;
+  if (overlay === 'unf') { legendeUnfaelle(); ladeUnfaelle(); }
   if (overlay === 'steig') lg.innerHTML = `<div class="lbl">Steigung (steilstes Stück über 30 m)</div><div class="keys">${STEIG.map((k, i) => `<i style="background:${k[1]}"></i><span>${i < STEIG.length - 1 ? `${k[0] / 10}–${STEIG[i + 1][0] / 10} %` : `ab ${k[0] / 10} %`}</span>`).join('')}</div><div class="hint">Aus dem Geländemodell. Steigungen fließen ins Verkehrsmodell ein.</div>`;
   if (overlay === 'zuf') lg.innerHTML = '<div class="lbl">Zufriedenheit mit dem Radnetz</div><div class="bar" style="background:linear-gradient(90deg,#d8452f,#e2c43a,#3fae4a)"></div><div class="ends"><span>unzufrieden</span><span>zufrieden</span></div><div class="hint">Je 500-m-Zelle: wie direkt und stressfrei die Radwege zu den Zielen bis 10 km sind.</div>';
-  if (overlay && !['route', 'verkehr', 'zuf', 'steig'].includes(overlay) && levelIndex() < 2) lg.innerHTML += '<div class="hint">Weit herausgezoomt: nur Haupt- und Sammelstraßen.</div>';
+  if (overlay && !['route', 'verkehr', 'zuf', 'steig', 'unf'].includes(overlay) && levelIndex() < 2) lg.innerHTML += '<div class="hint">Weit herausgezoomt: nur Haupt- und Sammelstraßen.</div>';
 }
 
 /* ----------------------------- Eingabe ----------------------------- */
@@ -976,6 +1028,16 @@ function zeigeMenu(art = 'start') {
         <div class="aktionen">${art === 'laden' ? (p.leer ? '' : `<button class="btn primary" data-laden="${p.platz}">Laden</button><button class="btn" data-loeschen="${p.platz}" title="Löschen">✕</button>`) : `<button class="btn primary" data-speichern="${p.platz}">${p.leer ? 'Speichern' : 'Überschreiben'}</button>`}</div></div>`).join('')}</div>
       <div class="row-btns">${art === 'laden' ? '<button class="btn" data-m="import">Datei importieren …</button>' : '<button class="btn" data-m="export">Als Datei exportieren</button>'}</div>
       <button class="btn zurueck" data-m="${hatAutosave() && art === 'speichern' ? 'pause' : (hatAutosave() ? 'pause' : 'start')}">Zurück</button>`;
+  } else if (art === 'quellen') {
+    const Q = [['Karte, Straßen, Gebäude', 'OpenStreetMap-Mitwirkende, Open Database License (ODbL)', 'https://www.openstreetmap.org/copyright']];
+    if (man.hoehe) Q.push(['Höhen (Geländemodell)', man.hoehe.quelle, 'https://www.opengeodata.nrw.de/produkte/geobasis/hm/']);
+    const d = man.daten || {};
+    if (d.zensus) Q.push(['Einwohner', d.zensus.quelle, 'https://www.destatis.de/DE/Themen/Gesellschaft-Umwelt/Bevoelkerung/Zensus2022/_inhalt.html']);
+    if (d.unfaelle) Q.push(['Unfälle ' + d.unfaelle.jahre[0] + '–' + d.unfaelle.jahre[d.unfaelle.jahre.length - 1], d.unfaelle.quelle, 'https://unfallatlas.statistikportal.de/']);
+    if (d.verkehrswerte) Q.push(['Gezählter Kfz-Verkehr', d.verkehrswerte.quelle, 'https://www.opengeodata.nrw.de/produkte/transport_verkehr/strassennetz/']);
+    k.innerHTML = `<h2>Datenquellen</h2><dl class="kv" style="grid-template-columns:auto 1fr">${Q.map(([a, b, u]) => `<dt>${a}</dt><dd style="text-align:left"><a href="${u}" target="_blank" rel="noopener">${esc(b)}</a></dd>`).join('')}</dl>
+      <div class="note">Lizenzen: ODbL bzw. Datenlizenz Deutschland (dl-de/by-2-0, dl-de/zero-2.0). Modellwerte wie Radanteil, Zufriedenheit und Radverkehr sind Schätzungen des Spiels.</div>
+      <button class="btn zurueck" data-m="schliessen">Schließen</button>`;
   } else if (art === 'hilfe') {
     const T = [['Mausrad / + −', 'Zoomen – weit hinein wechselt in die Spielansicht'], ['Ziehen, Pfeile', 'Verschieben'], ['1–9', 'Strecken-Werkzeuge'], ['A / K', 'Ampel / Kreisverkehr'], ['Klick, Klick, Enter', 'Strecke: Start, Ziel, bauen'],
       ['Rücktaste / Esc', 'Wegpunkt zurück / abbrechen'], ['Strg+Z', 'Rückgängig'], ['I', 'Spielansicht ein/aus'], ['Q / E', 'Spielansicht drehen'], ['U', 'Tageszeit'], ['H', 'Häuser flach'],
@@ -984,11 +1046,12 @@ function zeigeMenu(art = 'start') {
   }
 }
 function schliesseMenu() { $('menu').hidden = true; dirty = true; }
+$('quellen').onclick = () => zeigeMenu('quellen');
 $('menu-auf').onclick = () => zeigeMenu(hatAutosave() ? 'pause' : 'start');
 $('menu').addEventListener('click', e => {
   const b = e.target.closest('[data-m],[data-laden],[data-loeschen],[data-speichern]'); if (!b) { if (e.target.id === 'menu' && hatAutosave()) schliesseMenu(); return; }
   const m = b.dataset.m;
-  if (m === 'weiter') return schliesseMenu();
+  if (m === 'weiter' || m === 'schliessen') return schliesseMenu();
   if (m === 'start' || m === 'pause' || m === 'neu' || m === 'laden' || m === 'speichern' || m === 'hilfe') return zeigeMenu(m);
   if (m === 'wahl') { neuerName = ($('neu-name').value || 'Mein Radnetz').trim(); schliesseMenu(); return starteWahl(); }
   if (m === 'ganz') { neuerName = ($('neu-name').value || 'Mein Radnetz').trim(); return starteSpiel(null); }
@@ -1091,6 +1154,7 @@ function endP(e) {
   if (pinch) { if (pointers.size < 2) pinch = null; return; }
   if (!moved && down && man && wahlGebiet) { const [x, y] = weltPunkt(p); wahlGebiet.x = x; wahlGebiet.y = y; wahlInfo(); down = null; return; }
   if (!moved && down && man && werkzeug !== 'auswahl') { werkzeugKlick(...weltPunkt(p)); down = null; return; }
+  if (!moved && down && man && overlay === 'unf' && modus === 'karte') { const [wx, wy] = weltPunkt(p), i = pickUnfall(wx, wy); if (i >= 0) { zeigeUnfall(i); down = null; return; } }
   if (!moved && down && man) { const r = pickRoad(...weltPunkt(p));
     if (e.shiftKey && r && selected) {
       if (!multi.length) multi = [selected];
@@ -1124,7 +1188,7 @@ window.addEventListener('keydown', e => {
   if (modus === 'iso' && (k === 'q' || k === 'e')) { Iso.drehen(k === 'q' ? -1 : 1); dirty = true; return; }
   if (modus === 'iso' && k === 'h') { $('t-haus').click(); return; }
   if (modus === 'iso' && k === 'u') { $('t-zeit').click(); return; }
-  if (k === 'z') setOverlay('cond'); if (k === 's') setOverlay('risk'); if (k === 'r') setOverlay('net'); if (k === 't') setOverlay('route'); if (k === 'v') setOverlay('verkehr'); if (k === 'f') setOverlay('zuf'); if (k === 'l') setLive(!liveAn); if (k === 'b') setOverlay('steig'); if (k === 'g') setRelief(!reliefAn); if (k === 'i') $('t-iso').click(); if (k === 'n') $('t-names').click();
+  if (k === 'z') setOverlay('cond'); if (k === 's') setOverlay('risk'); if (k === 'r') setOverlay('net'); if (k === 't') setOverlay('route'); if (k === 'v') setOverlay('verkehr'); if (k === 'f') setOverlay('zuf'); if (k === 'l') setLive(!liveAn); if (k === 'b') setOverlay('steig'); if (k === 'x') setOverlay('unf'); if (k === 'g') setRelief(!reliefAn); if (k === 'i') $('t-iso').click(); if (k === 'n') $('t-names').click();
   if (k === '+' || k === '=') { radT = 0; $('z-in').click(); } if (k === '-') { radT = 0; $('z-out').click(); }
   const pan = 120 / pxProM();
   if (k === 'arrowleft') cam.x -= pan; if (k === 'arrowright') cam.x += pan; if (k === 'arrowup') cam.y -= pan; if (k === 'arrowdown') cam.y += pan;

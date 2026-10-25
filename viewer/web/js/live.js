@@ -42,13 +42,15 @@ export class Live {
   constructor() { this.E = new Map(); this.N = new Map(); this.agents = []; this.t = 0; this.next = 1; this.rect = null; this.stat = { nahUeberholen: 0, abbiegen: 0, seit: 0 }; }
 
   // Netz aus Kachel-Kanten aufbauen; vorhandene Fahrzeuge auf weiter bestehenden Kanten bleiben.
-  bauen(roads, signale, radVol, rect, kreisel = new Set()) {
+  // autoVol(id): gezählter Kfz-Verkehr je Tag (Straßen.NRW) oder null -> dann Schätzung nach Straßenklasse
+  bauen(roads, signale, radVol, rect, kreisel = new Set(), autoVol = null) {
     const alt = this.E; this.E = new Map(); this.N = new Map(); this.rect = rect;
     const node = id => { let n = this.N.get(id); if (!n) { n = { id, out: [], inn: [], x: 0, y: 0, sig: signale.has(id) && !kreisel.has(id), kreisel: kreisel.has(id), rand: false }; this.N.set(id, n); } return n; };
     for (const r of roads) {
       if (this.E.has(r.id) || r.P.length < 2) continue;
       const m = r.m, road = isRoad(m), bv = bikeValues(m);
-      const auto = road && m.car !== 0 && m.cls !== 'auto' ? autoProTag(r) : 0;
+      const gez = autoVol ? autoVol(r.id) : null;
+      const auto = road && m.car !== 0 && m.cls !== 'auto' ? (gez > 0 ? gez * (m.frs || m.car === 2 ? 0.3 : 1) : autoProTag(r)) : 0;
       const radOk = m.cls !== 'treppe' && m.cls !== 'auto' && (road ? bv.use : m.bike !== 0);
       const rad = radOk ? Math.max(radVol(r.id) || 0, road ? 0 : 2) : 0;
       if (!auto && !rad) continue;

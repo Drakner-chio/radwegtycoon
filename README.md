@@ -46,7 +46,9 @@ wird von git ignoriert; Aufruf dann mit `regionen/lokal/meine-region.yaml`.
 `--jobs` an, z. B. `… radwegtycoon-pipeline alles regionen/lippe.yaml --jobs 32`. Die Pipeline schneidet
 das Gebiet dafür in Nord-Süd-Streifen (osmium) und verteilt sie auf die Prozesse.
 
-Einzelne Schritte gehen auch getrennt: `download`, `ausschnitt`, `bauen`, `netz`, `hoehe`, `vorschau`, `info`.
+Einzelne Schritte gehen auch getrennt: `download`, `ausschnitt`, `bauen`, `netz`, `daten`, `hoehe`, `vorschau`, `info`.
+`daten` holt Zensus 2022 (Einwohner), Unfallatlas (Unfälle) und die Verkehrswerte von Straßen.NRW (gezählter
+Kfz-Verkehr) und rechnet sie ins Netz ein; in der Regionsdatei mit `daten: [zensus, unfaelle, verkehrswerte]`.
 `hoehe` lädt das Geländemodell von Geobasis NRW (nur NRW, einige GB für Lippe, wird zwischengespeichert) und
 berechnet Relief und Steigungen; in der Regionsdatei mit `hoehe: dgm1_nrw` eingeschaltet.
 `bauen` erzeugt auch das Verkehrsnetz (`netz.json.gz`); `netz` allein baut nur dieses aus vorhandenen Kacheln neu.
@@ -80,7 +82,7 @@ Pipeline-Lauf reicht ein Neuladen der Seite; nach `git pull` das Image neu bauen
 Spielen: Im Hauptmenü „Neues Spiel“, Spielgebiet als Kreis auf der Karte wählen (oder ganze Region).
 Spielstände: sechs Speicherplätze im Browser plus Export/Import als Datei (Menü: Logo oben links oder `M`).
 Bauen: Werkzeug links wählen (Tasten 1–9, A Ampel, K Kreisverkehr), Start und Ziel anklicken – die Strecke
-folgt der Straße –, mit Enter bauen; Strg+Z macht rückgängig. Tasten: Mausrad/+/− zoomen, Pfeile verschieben, `Z` Zustand, `S` Sicherheit, `R` Radnetz, `T` Radrouten, `V` Verkehr, `B` Steigung, `G` Relief, `F` Zufriedenheit, `L` Live-Verkehr, `I` Spielansicht (auch durch weites Hineinzoomen), `N` Namen.
+folgt der Straße –, mit Enter bauen; Strg+Z macht rückgängig. Tasten: Mausrad/+/− zoomen, Pfeile verschieben, `Z` Zustand, `S` Sicherheit, `R` Radnetz, `T` Radrouten, `V` Verkehr, `B` Steigung, `X` Unfälle, `G` Relief, `F` Zufriedenheit, `L` Live-Verkehr, `I` Spielansicht (auch durch weites Hineinzoomen), `N` Namen.
 In der Spielansicht: `Q`/`E` drehen, `H` Häuser flach, `U` Tageszeit.
 
 ## Lizenz der Kartendaten
