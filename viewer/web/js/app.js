@@ -3,6 +3,7 @@ import { TileStore, isRoad } from './tiles.js';
 import { Spiel, AUSBAU, gesamt, wendeAn, strassenzug } from './game.js';
 import { Verkehr } from './verkehr.js';
 import { Live } from './live.js';
+import { Hoehen } from './hoehe.js';
 import { Painter, buildPatterns, hashStr, stroke, offsetLine, bikeValues, condColor, riskColor, drawCrossSection, clamp } from './render.js';
 
 const $ = id => document.getElementById(id);
@@ -24,7 +25,7 @@ const params = new URLSearchParams(location.search);
 const region = params.get('region') || 'lippe';
 const base = params.get('karte') || `daten/${region}/karte/`;
 
-let man, store, spiel, verkehr = null;
+let man, store, spiel, verkehr = null, hoehen = null, reliefAn = true;
 const view = $('view'), vctx = view.getContext('2d'), mapwin = $('mapwin');
 let dpr = 1, vw = 0, vh = 0;
 const cam = { x: 0, y: 0, z: 0.05 };
@@ -43,12 +44,16 @@ async function start() {
     return;
   }
   store = new TileStore(base, man, () => { dirty = true; });
+  hoehen = new Hoehen(base, man); hoehen.onLoad = () => { dirty = true; };
+  try { reliefAn = localStorage.getItem('rtc-relief') !== '0'; } catch (e) {}
+  if (man.hoehe) document.querySelector('.attr').insertAdjacentHTML('beforeend', ' · Höhen © ' + esc(man.hoehe.quelle.replace(/ \(.*\)$/, '')));
   spiel = new Spiel(man.slug);
   store.patchFor = id => spiel.patchFor(id);
   spiel.onChange = renderSpiel;
   setupSpiel();
   setupVerkehr();
   $('t-live').onclick = () => setLive(!liveAn); setLive(liveAn);
+  $('t-relief').onclick = () => setRelief(!reliefAn); setRelief(reliefAn, true);
   $('t-iso').onclick = () => { const x = cam.x + vw / cam.z / 2, y = cam.y + vh / cam.z / 2; location.href = `iso.html?region=${encodeURIComponent(region)}${params.get('karte') ? '&karte=' + encodeURIComponent(base) : ''}&x=${Math.round(x)}&y=${Math.round(y)}`; };
   $('region').textContent = man.name;
   $('stand').textContent = man.osm_stand ? ' · OSM-Stand ' + new Date(man.osm_stand).toLocaleDateString('de-DE') : '';
@@ -115,8 +120,19 @@ function tilesFor(L, i, j) {
   }
   return missing ? null : { tiles, extra };
 }
+// Schummerungs-Kacheln für ein Chunk-Rechteck (null = lädt noch)
+function reliefFuer(L, r) {
+  if (!reliefAn || !hoehen || !hoehen.ok) return [];
+  const l = L.lod === 0 ? 0 : 1, T = man.tile_size_m[l], E0 = man.bbox_utm[0], N0 = man.bbox_utm[3], out = [];
+  for (let ix = Math.floor((r[0] + E0) / T); ix <= Math.floor((r[2] - 1e-6 + E0) / T); ix++)
+    for (let iy = Math.floor((N0 - r[3] + 1e-6) / T); iy <= Math.floor((N0 - r[1]) / T); iy++) {
+      const cv = hoehen.schummerung(l, ix, iy); if (cv === null) return null; if (cv) out.push([cv, ix * T - E0, N0 - (iy + 1) * T, T]);
+    }
+  return out;
+}
 function renderChunk(L, i, j) {
   const need = tilesFor(L, i, j); if (!need) return null;
+  const rel = reliefFuer(L, chunkRect(L, i, j)); if (rel === null) return null;
   const px = Math.round(L.chunk * L.res);
   const cv = document.createElement('canvas'); cv.width = cv.height = px;
   const c = cv.getContext('2d');
@@ -124,6 +140,7 @@ function renderChunk(L, i, j) {
   c.setTransform(L.res, 0, 0, L.res, -r[0] * L.res, -r[1] * L.res);
   if (!need.tiles.length) { c.fillStyle = '#5f8f49'; c.fillRect(r[0], r[1], L.chunk, L.chunk); }
   else new Painter(c, L.res).scene(r, need.tiles, need.extra);
+  if (rel.length) { c.imageSmoothingEnabled = true; for (const [rc, x, y, T] of rel) c.drawImage(rc, x, y, T, T); }
   return cv;
 }
 
@@ -160,6 +177,12 @@ function liveSchritt(now) {
     liveInfoT = now; const z = live.zahlen();
     $('live').textContent = `${fmt(z.autos)} Autos · ${fmt(z.raeder)} Räder · eng überholt ${fmt(z.nahUeberholenH)}/h · Abbiegekonflikte ${fmt(z.abbiegenH)}/h`;
   }
+}
+function setRelief(an, still) {
+  reliefAn = an; try { localStorage.setItem('rtc-relief', an ? '1' : '0'); } catch (e) {}
+  $('t-relief').setAttribute('aria-pressed', an); $('t-relief').hidden = !(hoehen && hoehen.ok);
+  document.querySelector('[data-ov="steig"]').hidden = !(hoehen && hoehen.ok);
+  if (!still) { chunks.clear(); dirty = true; }
 }
 function setLive(an) {
   liveAn = an; try { localStorage.setItem('rtc-live', an ? '1' : '0'); } catch (e) {}
@@ -300,6 +323,31 @@ function drawVerkehr(top) {
   }
   paths.forEach((p, k) => { vctx.lineWidth = VK_KL[k][2] * wpx; vctx.strokeStyle = VK_KL[k][1]; vctx.stroke(p); });
 }
+const STEIG = [[0, '#3fae4a'], [30, '#9cc23e'], [50, '#e2c43a'], [80, '#e48a34'], [120, '#d8452f']];
+const steigKl = v => { let k = 0; for (let i = 0; i < STEIG.length; i++) if (v >= STEIG[i][0]) k = i; return k; };
+function drawSteigung(top) {
+  if (!verkehr || !verkehr.netz || !verkehr.netz.kanten.steil) return;
+  const S = verkehr.netz.kanten.steil, wpx = 1 / cam.z, paths = STEIG.map(() => new Path2D());
+  const vx0 = cam.x, vy0 = cam.y, vx1 = cam.x + vw / cam.z, vy1 = cam.y + vh / cam.z;
+  vctx.fillStyle = 'rgba(12,20,16,.35)'; vctx.fillRect(cam.x, cam.y, vw / cam.z, vh / cam.z);
+  if (top >= 2) {
+    for (const t of loadedTiles(0)) for (const r of t.roads) {
+      if (!r.own || r.bb[2] < vx0 || r.bb[0] > vx1 || r.bb[3] < vy0 || r.bb[1] > vy1) continue;
+      const e = verkehr.idx.get(r.id); if (e === undefined || S[e] < 0) continue;
+      const p = paths[steigKl(S[e])], P = r.P; p.moveTo(P[0][0], P[0][1]); for (let i = 1; i < P.length; i++) p.lineTo(P[i][0], P[i][1]);
+    }
+  } else {
+    const { a, b, kx, ky } = verkehr, cls = verkehr.netz.kanten.cls, kl = verkehr.netz.klassen;
+    for (let e = 0; e < verkehr.nE; e++) {
+      if (S[e] < 30 && cam.z < .05) continue;
+      const c = kl[cls[e]]; if (c === 'fuss' || c === 'treppe' || c === 'auto') continue;
+      const x0 = kx[a[e]], y0 = ky[a[e]], x1 = kx[b[e]], y1 = ky[b[e]];
+      if (Math.max(x0, x1) < vx0 || Math.min(x0, x1) > vx1 || Math.max(y0, y1) < vy0 || Math.min(y0, y1) > vy1 || S[e] < 0) continue;
+      const p = paths[steigKl(S[e])]; p.moveTo(x0, y0); p.lineTo(x1, y1);
+    }
+  }
+  vctx.lineCap = 'round'; paths.forEach((p, k) => { vctx.lineWidth = (k >= 3 ? 3.5 : 2.5) * wpx; vctx.strokeStyle = STEIG[k][1]; vctx.stroke(p); });
+}
 function drawZufrieden() {
   if (!verkehr || !verkehr.erg) return;
   const Z = verkehr.Z, h = verkehr.zelle / 2, e = verkehr.erg;
@@ -337,6 +385,7 @@ function drawOverlay(top) {
   if (overlay === 'route') return drawRoutes(lod);
   if (overlay === 'verkehr') return drawVerkehr(top);
   if (overlay === 'zuf') return drawZufrieden();
+  if (overlay === 'steig') return drawSteigung(top);
   for (const t of loadedTiles(lod)) for (const r of t.roads) {
     if (lod === 0 && !r.own) continue;
     const m = r.m; let col = null;
@@ -438,8 +487,8 @@ function inspect(r) {
   if (ch.length) h += `<div class="chips">${ch.map(c => `<span class="chip ${c[1]}">${esc(c[0])}</span>`).join('')}</div>`;
   if (m.routes) h += `<div class="chips">${m.routes.map(n => `<button class="chip route${routeSel === n ? ' on' : ''}" data-route="${esc(n)}" title="Route auf der Karte hervorheben"><i style="background:${routeColor(n)}"></i>${esc(n)}</button>`).join('')}</div>`;
   if (routeSel && m.routes && m.routes.includes(routeSel)) { const rk = routeKanten(routeSel); h += `<button class="bev bau-btn" data-route-mark="1"><span>Route „${esc(routeSel)}“ markieren</span><b>${rk.length} Abschn.</b></button><div class="note">Markiert alle geladenen Abschnitte (${fmt(rk.reduce((a, x) => a + x.len, 0) / 1000, 1)} km). Mehr laden: herauszoomen bis „Ort“.</div>`; }
-  const vol = verkehr ? verkehr.volumen(r.id) : null;
-  if (bv.use || vol) h += `<dl class="kv">${bv.use ? `<dt>Risiko fürs Rad</dt><dd>${Math.round(bv.risk * 100)} / 100</dd><dt>Fahrkomfort</dt><dd>${Math.round(bv.comfort * 100)} %</dd>` : ''}${vol !== null ? `<dt>Radverkehr (Modell)</dt><dd>${fmt(vol)} / Tag</dd>` : ''}</dl>`;
+  const vol = verkehr ? verkehr.volumen(r.id) : null, stg = verkehr && verkehr.netz ? verkehr.steigung(r.id) : null;
+  if (bv.use || vol || stg) h += `<dl class="kv">${bv.use ? `<dt>Risiko fürs Rad</dt><dd>${Math.round(bv.risk * 100)} / 100</dd><dt>Fahrkomfort</dt><dd>${Math.round(bv.comfort * 100)} %</dd>` : ''}${vol !== null ? `<dt>Radverkehr (Modell)</dt><dd>${fmt(vol)} / Tag</dd>` : ''}${stg ? `<dt>Steigung</dt><dd>bis ${fmt(stg.steil, 1)} % · ↗ ${fmt(stg.auf)} / ↘ ${fmt(stg.ab)} Hm</dd>` : ''}</dl>`;
   if (est.size) h += `<div class="est">Geschätzt, weil in OSM nicht eingetragen: ${[...est].map(e => EST[e] || e).join(', ')}</div>`;
   const skip = new Set(['name', 'ref', 'est', 'routes']);
   h += `<details class="raw"><summary>Spielmodell (alle Felder)</summary><dl class="kv">${Object.entries(m).filter(([k]) => !skip.has(k)).map(([k, v]) => `<dt>${k}</dt><dd>${esc(Array.isArray(v) ? v.join(', ') : v)}</dd>`).join('')}</dl></details>`;
@@ -585,7 +634,7 @@ function barsOf(st, title, prefix, labels) {
 function renderStats() {
   const st = man.statistik || {};
   const facts = [['Straßen', fmt(st.strassen || 0, 0) + ' km'], ['Eigene Radwege', fmt(st.radwege_eigen || 0, 0) + ' km'], ['Tempo ≤ 30', st.strassen ? Math.round((st.tempo30 || 0) / st.strassen * 100) + ' %' : '–'],
-    ['Gebäude', fmt(st.gebaeude || 0)], ['Ø Zustand Rad', st.zustand_rad_mittel ?? '–']];
+    ['Gebäude', fmt(st.gebaeude || 0)], ['Ø Zustand Rad', st.zustand_rad_mittel ?? '–'], ...(st.hoehe_max != null ? [['Höhe', `${fmt(st.hoehe_min)}–${fmt(st.hoehe_max)} m`]] : [])];
   $('facts').innerHTML = facts.map(f => `<div class="fact"><span class="lbl">${f[0]}</span><b>${f[1]}</b></div>`).join('');
   regionSurvey = () => surveyBars(st);
 }
@@ -612,8 +661,9 @@ function setOverlay(o) {
   if (overlay === 'net') lg.innerHTML = '<div class="lbl">Radnetz</div><div class="keys"><i style="background:#e0563a"></i><span>Radweg / Fahrradstraße</span><i style="background:#f08a3a"></i><span>Hochbord-Radweg</span><i style="background:#f2c230"></i><span>Rad-/Schutzstreifen</span><i style="background:#9cc23e"></i><span>Tempo ≤ 30, Mischverkehr</span><i style="background:#9a9fa6"></i><span>Tempo 50+, Mischverkehr</span><i style="background:#7e8279"></i><span>Radweg daneben</span><i style="background:#c7b287"></i><span>Feld- und Waldweg</span><i style="background:rgba(31,90,166,.55);height:8px"></i><span>Ausgeschilderte Radroute</span></div>';
   if (overlay === 'route') { routeSig = ''; lg.innerHTML = ''; }
   if (overlay === 'verkehr') lg.innerHTML = `<div class="lbl">Radfahrten pro Tag (Modell)</div><div class="keys">${VK_KL.map((k, i) => `<i style="background:${k[1]};height:${Math.max(3, k[2])}px"></i><span>${i < VK_KL.length - 1 ? `${k[0]}–${VK_KL[i + 1][0]}` : `ab ${k[0]}`}</span>`).join('')}</div><div class="hint">Wege zwischen Wohnorten und Zielen, umgelegt auf die angenehmsten Radrouten.</div>`;
+  if (overlay === 'steig') lg.innerHTML = `<div class="lbl">Steigung (steilstes Stück über 30 m)</div><div class="keys">${STEIG.map((k, i) => `<i style="background:${k[1]}"></i><span>${i < STEIG.length - 1 ? `${k[0] / 10}–${STEIG[i + 1][0] / 10} %` : `ab ${k[0] / 10} %`}</span>`).join('')}</div><div class="hint">Aus dem Geländemodell. Steigungen fließen ins Verkehrsmodell ein.</div>`;
   if (overlay === 'zuf') lg.innerHTML = '<div class="lbl">Zufriedenheit mit dem Radnetz</div><div class="bar" style="background:linear-gradient(90deg,#d8452f,#e2c43a,#3fae4a)"></div><div class="ends"><span>unzufrieden</span><span>zufrieden</span></div><div class="hint">Je 500-m-Zelle: wie direkt und stressfrei die Radwege zu den Zielen bis 10 km sind.</div>';
-  if (overlay && !['route', 'verkehr', 'zuf'].includes(overlay) && levelIndex() < 2) lg.innerHTML += '<div class="hint">Weit herausgezoomt: nur Haupt- und Sammelstraßen.</div>';
+  if (overlay && !['route', 'verkehr', 'zuf', 'steig'].includes(overlay) && levelIndex() < 2) lg.innerHTML += '<div class="hint">Weit herausgezoomt: nur Haupt- und Sammelstraßen.</div>';
 }
 
 /* ----------------------------- Eingabe ----------------------------- */
@@ -664,7 +714,7 @@ $('t-names').onclick = () => { showNames = !showNames; $('t-names').setAttribute
 window.addEventListener('keydown', e => {
   if (e.target.closest && e.target.closest('input')) return;
   const k = e.key.toLowerCase();
-  if (k === 'z') setOverlay('cond'); if (k === 's') setOverlay('risk'); if (k === 'r') setOverlay('net'); if (k === 't') setOverlay('route'); if (k === 'v') setOverlay('verkehr'); if (k === 'f') setOverlay('zuf'); if (k === 'l') setLive(!liveAn); if (k === 'i') $('t-iso').click(); if (k === 'n') $('t-names').click();
+  if (k === 'z') setOverlay('cond'); if (k === 's') setOverlay('risk'); if (k === 'r') setOverlay('net'); if (k === 't') setOverlay('route'); if (k === 'v') setOverlay('verkehr'); if (k === 'f') setOverlay('zuf'); if (k === 'l') setLive(!liveAn); if (k === 'b') setOverlay('steig'); if (k === 'g') setRelief(!reliefAn); if (k === 'i') $('t-iso').click(); if (k === 'n') $('t-names').click();
   if (k === '+' || k === '=') $('z-in').click(); if (k === '-') $('z-out').click();
   const pan = 120 / cam.z;
   if (k === 'arrowleft') cam.x -= pan; if (k === 'arrowright') cam.x += pan; if (k === 'arrowup') cam.y -= pan; if (k === 'arrowdown') cam.y += pan;

@@ -206,3 +206,32 @@ def test_netz(built):
     eins = (root / "netz.json.gz").read_bytes()
     bauen_netz(root)
     assert (root / "netz.json.gz").read_bytes() == eins
+
+
+def test_hoehe_aus_dgm(built, tmp_path):
+    """Künstliches DGM mit 5 % Steigung nach Osten: Raster und Höhenmeter je Kante müssen passen."""
+    import gzip as _gz
+    import numpy as np
+    import tifffile
+    from rtc.netz import bauen_netz
+    from rtc.hoehe import bauen_hoehe, ZELLEN
+    root, _ = built
+    bauen_netz(root)
+    man = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+    e_ref = min(ix for ix, _ in man["tiles"]["0"]) * 1000
+    for ix, iy in man["tiles"]["0"]:
+        e = ix * 1000 + np.arange(1000) + .5
+        h = np.tile(100 + 0.05 * (e - e_ref), (1000, 1)).astype(np.float32)
+        tags = [(33550, "d", 3, (1.0, 1.0, 0.0)), (33922, "d", 6, (0, 0, 0, ix * 1000.0, (iy + 1) * 1000.0, 0))]
+        tifffile.imwrite(tmp_path / f"dgm1_32_{ix}_{iy}_1_nw_2023.tif", h, compression="deflate", extratags=tags)
+    info = bauen_hoehe(root, tmp_path, "test", dgm_ordner=tmp_path)
+    assert info and info["tiles"]["0"]
+    ix, iy = info["tiles"]["0"][0]
+    g = np.frombuffer(_gz.decompress((root / "hoehe" / "0" / f"{ix}_{iy}.bin.gz").read_bytes()), "<i2").reshape(ZELLEN, ZELLEN)
+    assert abs(g[0, 1] - g[0, 0] - 5) <= 1          # 10 m Zelle, 5 % -> 0,5 m = 5 dm
+    netz = json.loads(_gz.decompress((root / "netz.json.gz").read_bytes()))
+    K, x = netz["kanten"], netz["knoten"]["x"]
+    for a, b, auf, ab in zip(K["a"], K["b"], K["auf"], K["ab"]):
+        if auf < 0:
+            continue
+        assert abs((auf - ab) / 10 - 0.05 * (x[b] - x[a])) < 0.8

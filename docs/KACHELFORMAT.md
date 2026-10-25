@@ -111,3 +111,12 @@ Wird vom Schritt `netz` aus den Detailkacheln erzeugt; `manifest.json` bekommt e
   `frs`, `cond`, `tcond`, `oneway` (−1 = fehlt).
 - `zonen`: Spalten – `x`, `y` (Zellmitte), `knoten`, `anbindung` (m bis zum Knoten), `ew`, `arbeit`,
   `einkauf`, `schule`, `versorgung`, `freizeit`, `bahnhof`. Zellgröße `zelle_m`.
+- Mit Höhen zusätzlich je Kante: `auf`, `ab` (Höhenmeter in Zeichenrichtung a → b, dm) und `steil`
+  (steilste Steigung über 30 m in Promille); −1 = unbekannt.
+
+## hoehe/ (Höhenraster)
+
+`hoehe/0/<ix>_<iy>.bin.gz` (Detailkacheln) und `hoehe/1/<ix>_<iy>.bin.gz` (Überblick): je 100 × 100 Zellen,
+Int16 little-endian in Dezimetern, Zeilen von Nord nach Süd, Werte sind Zellmittel; −32768 = fehlt.
+`manifest.json` → `hoehe`: `quelle`, `zellen`, `raster_m`, `tiles` je Stufe, `min`, `max`, `fehlt`;
+`statistik.hoehe_min` / `hoehe_max`.

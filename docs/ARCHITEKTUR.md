@@ -156,3 +156,18 @@ geschätzt ist.
 - Statische Szene wird mit Rand zwischengespeichert; Fahrzeuge werden je Bild darüber gezeichnet, davor
   liegende Gebäude/Bäume über ihnen neu (Verdeckung). `H` zeigt Gebäude nur als Grundriss (freie Sicht).
 - Offen: Klicken/Bauen in der Iso-Ansicht, Zebrastreifen, Parkplätze, Dachformen für Winkelhäuser, Nacht.
+
+## Höhen (`pipeline/rtc/hoehe.py`, `viewer/web/js/hoehe.js`)
+
+- Quelle NRW: DGM1 von Geobasis NRW (1-m-Raster, GeoTIFF, 1-km-Kacheln im selben Raster wie unsere Kacheln,
+  Datenlizenz Deutschland – Zero 2.0). Die Dateiliste kommt aus dem Download-Verzeichnis; Dateien werden in
+  `/data/quellen/dgm1/` zwischengespeichert (Lippe: rund 2.000 Kacheln, einige GB). Außerhalb von NRW: keine
+  Höhen (später Copernicus GLO-30 als Ersatz). Regionsdatei: `hoehe: dgm1_nrw`; Schritt `hoehe` läuft in
+  `alles` mit, `--dgm <ordner>` nimmt eigene GeoTIFFs.
+- Spielraster: 10-m-Zellmittel je 1-km-Kachel, 80 m im Überblick; Kanten bekommen Höhenmeter auf/ab und die
+  steilste Steigung über 30 m (`netz.json.gz`).
+- Verkehrsmodell: Faktoren je Richtung; 1 Hm bergauf = 10 gefühlte Meter, über 6 % Steigung Zuschlag
+  (`BERG` in `verkehr.js`).
+- Karte: Schummerung (Licht aus Nordwest, 2,5- bzw. 4-fach überhöht) in den Raster-Stücken, Ebene „Steigung“ (`B`),
+  Relief schaltbar (`G`), Steigung im Info-Fenster.
+- Offen: Gelände in der Iso-Ansicht, Höhenlinien.

@@ -10,3 +10,5 @@ gebiet:
   zentrum: [51.9376, 8.8796]   # lat, lon – Beispiel: Detmold
   radius_km: 100
 rand_m: 0
+# Höhen: Geländemodell von Geobasis NRW (außerhalb NRW ohne Höhen)
+hoehe: dgm1_nrw

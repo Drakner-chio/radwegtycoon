@@ -8,3 +8,5 @@ gebiet:
   name: Kreis Lippe
   admin_level: 6
 rand_m: 1500
+# Höhen: Geländemodell von Geobasis NRW (außerhalb NRW ohne Höhen)
+hoehe: dgm1_nrw

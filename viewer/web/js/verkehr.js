@@ -5,6 +5,9 @@ import { bikeValues } from './render.js';
 
 const u = v => v === -1 ? undefined : v;
 
+// Steigungen: 1 Höhenmeter bergauf fühlt sich wie 10 m Strecke an; über 6 % Steigung zusätzlich anstrengend
+export const BERG = { hm: 10, steilAb: 0.06, steil: 8 };
+
 // Gefühlte Meter je Meter fürs Rad. Infinity = nicht befahrbar.
 export function radFaktor(m) {
   if (m.cls === 'auto' || m.cls === 'treppe') return Infinity;
@@ -45,7 +48,19 @@ export class Verkehr {
     const p = this.patchFor(K.id[e]);
     return p ? { ...m, ...p } : m;
   }
-  faktoren() { const f = new Float32Array(this.nE); for (let e = 0; e < this.nE; e++) f[e] = radFaktor(this.modell(e)); return f; }
+  // je Richtung: Grundfaktor + Höhenmeter bergauf (BERG.hm gefühlte Meter je Hm) + Zuschlag für steile Stücke
+  faktoren() {
+    const f = new Float32Array(2 * this.nE), K = this.netz.kanten, auf = K.auf, ab = K.ab, steil = K.steil;
+    for (let e = 0; e < this.nE; e++) {
+      const g = radFaktor(this.modell(e)); f[2 * e] = f[2 * e + 1] = g;
+      if (g === Infinity || !auf || auf[e] < 0) continue;
+      const L = Math.max(5, this.len[e]), st = Math.max(0, steil[e] / 1000 - BERG.steilAb) * BERG.steil;
+      f[2 * e] = g + (BERG.hm * auf[e] / 10) / L + st;
+      f[2 * e + 1] = g + (BERG.hm * ab[e] / 10) / L + st * .5;
+    }
+    return f;
+  }
+  steigung(id) { const e = this.idx && this.idx.get(id), K = this.netz && this.netz.kanten; if (e === undefined || !K || !K.steil || K.steil[e] < 0) return null; return { steil: K.steil[e] / 10, auf: K.auf[e] / 10, ab: K.ab[e] / 10 }; }
 
   // Neu rechnen; während einer laufenden Rechnung wird höchstens eine weitere vorgemerkt
   async rechnen() {

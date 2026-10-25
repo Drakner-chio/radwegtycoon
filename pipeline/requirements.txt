@@ -5,3 +5,5 @@ numpy>=1.26
 pyyaml>=6.0
 pillow>=10.0
 pytest>=8.0
+tifffile>=2024.1
+imagecodecs>=2024.1

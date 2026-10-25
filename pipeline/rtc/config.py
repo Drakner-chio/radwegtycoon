@@ -30,6 +30,7 @@ class Region:
     rand_m: float = 1000.0
     kachel_m: tuple[int, int, int] = (1000, 8000, 32000)
     pfad: pathlib.Path | None = None
+    hoehe: str | None = None   # Höhenquelle, z. B. dgm1_nrw
 
     @property
     def typ(self) -> str:
@@ -69,4 +70,4 @@ def load_region(path: str | pathlib.Path) -> Region:
     if len(kachel) != 3:
         raise ConfigError(f"{path.name}: kachel_m braucht drei Werte (Detail, Überblick, Fern)")
     return Region(name=data["name"], slug=slug, quellen=quellen, gebiet=g,
-                  rand_m=float(data.get("rand_m", 1000)), kachel_m=kachel, pfad=path)
+                  rand_m=float(data.get("rand_m", 1000)), kachel_m=kachel, pfad=path, hoehe=data.get("hoehe"))

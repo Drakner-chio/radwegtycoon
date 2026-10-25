@@ -146,6 +146,16 @@ def cmd_bauen(region, data, args):
     return out
 
 
+def cmd_hoehe(region, data, args):
+    from .hoehe import bauen_hoehe
+    quelle = args.hoehe or region.hoehe
+    if not quelle and not args.dgm:
+        log("Höhen: keine Quelle (in der Regionsdatei 'hoehe: dgm1_nrw' setzen) – übersprungen")
+        return
+    bauen_hoehe(data / region.slug / "karte", data / "quellen", quelle or "eigene", 
+                pathlib.Path(args.dgm) if args.dgm else None, jobs=args.jobs)
+
+
 def cmd_netz(region, data, args):
     from .netz import bauen_netz
     bauen_netz(data / region.slug / "karte", jobs=args.jobs)
@@ -178,12 +188,14 @@ def cmd_info(region, data, args):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="rtc", description="Radweg Tycoon – Kartenpipeline")
-    ap.add_argument("befehl", choices=["alles", "download", "ausschnitt", "bauen", "netz", "vorschau", "info"])
+    ap.add_argument("befehl", choices=["alles", "download", "ausschnitt", "bauen", "netz", "hoehe", "vorschau", "info"])
     ap.add_argument("region", help="Regionsdatei, z. B. regionen/lippe.yaml")
     ap.add_argument("--daten", default="/data", help="Arbeitsordner (Standard: /data)")
     ap.add_argument("--eingabe", help="OSM-Datei direkt verwenden (überspringt download/ausschnitt)")
     ap.add_argument("--zentrum", help="Mitte der Detailvorschau als 'lat,lon'")
     ap.add_argument("--neu", action="store_true", help="Quellen neu herunterladen")
+    ap.add_argument("--hoehe", help="Höhenquelle (überschreibt die Regionsdatei), z. B. dgm1_nrw")
+    ap.add_argument("--dgm", help="Ordner mit eigenen DGM-GeoTIFFs (statt Download)")
     ap.add_argument("--jobs", type=int, default=min(os.cpu_count() or 1, 16),
                     help="Anzahl paralleler Prozesse (Standard: Kerne, höchstens 16)")
     args = ap.parse_args(argv)
@@ -200,6 +212,8 @@ def main(argv=None):
         cmd_bauen(region, data, args)
     elif args.befehl == "netz":
         cmd_netz(region, data, args)
+    elif args.befehl == "hoehe":
+        cmd_hoehe(region, data, args)
     elif args.befehl == "vorschau":
         cmd_vorschau(region, data, args)
     elif args.befehl == "info":
@@ -209,6 +223,7 @@ def main(argv=None):
             cmd_download(region, data, args)
             cmd_ausschnitt(region, data, args)
         cmd_bauen(region, data, args)
+        cmd_hoehe(region, data, args)
         cmd_vorschau(region, data, args)
         cmd_info(region, data, args)
 
