@@ -5,6 +5,7 @@ import { lokalesNetz, pfad, knotenInfo, naechsteKreuzung } from './werkzeug.js';
 import { Verkehr } from './verkehr.js';
 import { Live } from './live.js';
 import { Hoehen } from './hoehe.js';
+import * as Iso from './isoansicht.js';
 import { Painter, buildPatterns, hashStr, stroke, offsetLine, bikeValues, condColor, riskColor, drawCrossSection, clamp } from './render.js';
 
 const $ = id => document.getElementById(id);
@@ -26,7 +27,9 @@ const params = new URLSearchParams(location.search);
 const region = params.get('region') || 'lippe';
 const base = params.get('karte') || `daten/${region}/karte/`;
 
-let man, store, spiel, verkehr = null, hoehen = null, reliefAn = true;
+let man, store, spiel, verkehr = null, hoehen = null, reliefAn = true, modus = 'karte';
+const pxProM = () => modus === 'iso' ? Iso.pxProM() : cam.z;            // Bildschirmpunkte je Meter in der aktiven Ansicht
+const weltPunkt = p => modus === 'iso' ? Iso.weltVon(p.x, p.y) : [cam.x + p.x / cam.z, cam.y + p.y / cam.z];
 const view = $('view'), vctx = view.getContext('2d'), mapwin = $('mapwin');
 let dpr = 1, vw = 0, vh = 0;
 const cam = { x: 0, y: 0, z: 0.05 };
@@ -53,6 +56,7 @@ async function start() {
   spiel.onChange = renderSpiel;
   setupSpiel();
   setupVerkehr();
+  Iso.init({ man, store, spiel, live, hoehen });
   $('t-live').onclick = () => setLive(!liveAn); setLive(liveAn);
   $('t-relief').onclick = () => setRelief(!reliefAn); setRelief(reliefAn, true);
   $('t-iso').onclick = () => { const x = cam.x + vw / cam.z / 2, y = cam.y + vh / cam.z / 2; location.href = `iso.html?region=${encodeURIComponent(region)}${params.get('karte') ? '&karte=' + encodeURIComponent(base) : ''}&x=${Math.round(x)}&y=${Math.round(y)}`; };
@@ -68,12 +72,13 @@ async function start() {
   else { cam.z = Math.min(vw / W, vh / H) * 0.95; cam.x = W / 2 - vw / cam.z / 2; cam.y = H / 2 - vh / cam.z / 2; }
   clampCam();
   $('loading').hidden = true;
+  if (params.get('ansicht') === 'iso') { const x = +params.get('x'), y = +params.get('y'); zuIso(x || cam.x + vw / cam.z / 2, y || cam.y + vh / cam.z / 2); }
   inspect(null);
   requestAnimationFrame(frame);
 }
 
 /* ----------------------------- Kamera ----------------------------- */
-function resize() { dpr = window.devicePixelRatio || 1; vw = mapwin.clientWidth; vh = mapwin.clientHeight; view.width = Math.round(vw * dpr); view.height = Math.round(vh * dpr); dirty = true; }
+function resize() { dpr = window.devicePixelRatio || 1; vw = mapwin.clientWidth; vh = mapwin.clientHeight; view.width = Math.round(vw * dpr); view.height = Math.round(vh * dpr); Iso.groesse(vw, vh); dirty = true; }
 function clampCam() {
   if (!man) return;
   const W = man.bbox_utm[2] - man.bbox_utm[0], H = man.bbox_utm[3] - man.bbox_utm[1];
@@ -151,9 +156,10 @@ const live = new Live();
 let liveAn = true, liveRect = null, liveSig = '', liveBau = 0, liveLetzt = 0, liveInfoT = 0;
 try { liveAn = localStorage.getItem('rtc-live') !== '0'; } catch (e) {}
 const LIVE_MIN_Z = .3, LIVE_MAX_M = 3500;
-function liveAktiv() { return liveAn && man && cam.z >= LIVE_MIN_Z; }
+function liveAktiv() { return liveAn && man && (modus === 'iso' || cam.z >= LIVE_MIN_Z); }
 function liveNetz(now) {
-  const vx0 = cam.x, vy0 = cam.y, vx1 = cam.x + vw / cam.z, vy1 = cam.y + vh / cam.z;
+  let vx0 = cam.x, vy0 = cam.y, vx1 = cam.x + vw / cam.z, vy1 = cam.y + vh / cam.z;
+  if (modus === 'iso') [vx0, vy0, vx1, vy1] = Iso.sichtbereich();
   const innen = liveRect && vx0 >= liveRect[0] - 20 && vy0 >= liveRect[1] - 20 && vx1 <= liveRect[2] + 20 && vy1 <= liveRect[3] + 20;
   const tiles = loadedTiles(0), sig = tiles.length + ':' + (verkehr && verkehr.erg ? verkehr.erg.t : 0) + ':' + spiel.s.log.length + ':' + Object.keys(spiel.s.kanten).length + ':' + JSON.stringify(spiel.s.knoten).length;
   if (innen && sig === liveSig) return;
@@ -196,11 +202,13 @@ function setLive(an) {
 function frame(now) {
   const la = liveAktiv();
   if (la) { liveSchritt(now); dirty = true; } else liveLetzt = 0;
+  if (modus === 'iso') dirty = true;
   $('live').hidden = !la;
   if (dirty) { dirty = false; draw(); if (man) updateSurvey(); }
   requestAnimationFrame(frame);
 }
 function draw() {
+  if (modus === 'iso') return zeichneIso();
   const s = cam.z * dpr;
   vctx.setTransform(1, 0, 0, 1, 0, 0);
   vctx.fillStyle = '#101713'; vctx.fillRect(0, 0, view.width, view.height);
@@ -451,7 +459,7 @@ function saveCam() { const now = Date.now(); if (now - saveT < 800) return; save
 
 /* ----------------------------- Auswahl ----------------------------- */
 function pickRoad(wx, wy) {
-  if (cam.z < .22) return null;
+  if (pxProM() < .22) return null;
   let best = null, bd = 1e9;
   for (const t of loadedTiles(0)) for (const r of t.roads) {
     const b = r.bb, h = r.half + 4;
@@ -464,7 +472,7 @@ function pickRoad(wx, wy) {
       if (d < bd) { bd = d; best = r; }
     }
   }
-  return bd < Math.max(3, 8 / cam.z) ? best : null;
+  return bd < Math.max(modus === 'iso' ? 1.5 : 3, 8 / pxProM()) ? best : null;
 }
 const CLS = { auto: 'Autobahn / Kraftfahrstraße', L: 'Hauptverkehrsstraße', dorf: 'Sammelstraße', wohn: 'Wohnstraße', spiel: 'Verkehrsberuhigter Bereich', zufahrt: 'Zufahrt', feld: 'Wirtschafts-/Waldweg', rad: 'Radweg', weg: 'Weg', fuss: 'Fußweg', treppe: 'Treppe' };
 const SURF = { asphalt: 'Asphalt', concrete: 'Beton', concrete_plates: 'Betonplatten', paving_stones: 'Betonpflaster', sett: 'Kopfsteinpflaster', cobblestone: 'Feldsteinpflaster', compacted: 'Wassergeb. Decke', fine_gravel: 'Feinsplitt', gravel: 'Schotter', ground: 'Erdweg', sand: 'Sand', grass: 'Gras', grass_paver: 'Rasengitter', wood: 'Holz', metal: 'Metall', paved: 'befestigt', unpaved: 'unbefestigt' };
@@ -536,7 +544,7 @@ function baue(id) {
   nachBau(`${a.name}${e.name ? ' · ' + e.name : ''}: ${e.kanten.length} Abschnitt${e.kanten.length > 1 ? 'e' : ''} für ${eur(e.kosten)}`);
 }
 function nachBau(msg) {
-  wendeAn(store, spiel); chunks.clear(); dirty = true; updateSurvey(true); verkehrNeu();
+  wendeAn(store, spiel); chunks.clear(); Iso.ungueltig(); dirty = true; updateSurvey(true); verkehrNeu();
   if (selected) inspect(selected);
   if (msg) { $('bau-msg').textContent = msg; }
 }
@@ -663,6 +671,7 @@ function setupSearch() {
   });
 }
 function setOverlay(o) {
+  if (modus === 'iso' && overlay !== o) zuKarte();
   overlay = overlay === o ? null : o; dirty = true;
   document.querySelectorAll('[data-ov]').forEach(b => b.setAttribute('aria-pressed', b.dataset.ov === overlay));
   const lg = $('legend'); lg.hidden = !overlay;
@@ -718,7 +727,7 @@ function setWerkzeug(w) {
 function renderToolpanel() {
   const tp = $('toolpanel'); if (werkzeug === 'auswahl') { tp.hidden = true; return; }
   tp.hidden = false; $('tp-icon').setAttribute('href', '#i-' + werkzeug);
-  const nah = cam.z >= .22;
+  const nah = pxProM() >= .22;
   if (ausbauVon(werkzeug)) {
     const a = ausbauVon(werkzeug), alle = strecke(false), pass = alle.filter(r => a.gilt(r.m)), c = gesamt(a, pass), km = alle.reduce((s2, r) => s2 + r.len, 0) / 1000;
     $('tp-name').textContent = a.name; $('tp-info').textContent = a.info;
@@ -738,7 +747,7 @@ function renderToolpanel() {
   }
 }
 function werkzeugKlick(wx, wy) {
-  if (cam.z < .22) { zoomAt(Math.min(cam.z * 3, 1.2), (wx - cam.x) * cam.z, (wy - cam.y) * cam.z); return; }
+  if (pxProM() < .22) { zoomAt(Math.min(cam.z * 3, 1.2), (wx - cam.x) * cam.z, (wy - cam.y) * cam.z); return; }
   const netz = aktivesNetz();
   if (ausbauVon(werkzeug)) {
     const a = ausbauVon(werkzeug), r = pickRoad(wx, wy), ok = erlaubtFuer(a);
@@ -748,12 +757,12 @@ function werkzeugKlick(wx, wy) {
     else { const p = pfad(netz, letzte(), n, ok); if (p) wege.push(p.slice(1)); else $('bau-msg').textContent = 'Keine durchgehende Verbindung gefunden.'; }
     vorschau = null; vorschauVon = '';
   } else {
-    const k = naechsteKreuzung(netz, wx, wy, 30 / cam.z + 8); kSel = k;
+    const k = naechsteKreuzung(netz, wx, wy, 30 / pxProM() + 8); kSel = k;
   }
   renderToolpanel(); dirty = true;
 }
 function werkzeugHover(wx, wy) {
-  if (cam.z < .22) return;
+  if (pxProM() < .22) return;
   const netz = aktivesNetz();
   if (ausbauVon(werkzeug)) {
     if (!wege.length) return;
@@ -762,7 +771,7 @@ function werkzeugHover(wx, wy) {
     vorschau = r && ok(r) ? (pfad(netz, letzte(), netz.kanten.get(r.id) || r, ok) || [null]).slice(1).filter(Boolean) : null;
     dirty = true;
   } else {
-    const k = naechsteKreuzung(netz, wx, wy, 30 / cam.z + 8); if (k !== kHover) { kHover = k; dirty = true; }
+    const k = naechsteKreuzung(netz, wx, wy, 30 / pxProM() + 8); if (k !== kHover) { kHover = k; dirty = true; }
   }
 }
 function werkzeugBauen() {
@@ -829,6 +838,61 @@ function zeichneKnotenBauten() {
   }
 }
 
+/* ----------------------------- Spielansicht (isometrisch) ----------------------------- */
+// Karte = Überblick, Planung, Auswertungsebenen. Spielansicht = Ort und Detail, hier wird gespielt.
+// Weit hineinzoomen in der Karte wechselt in die Spielansicht, weiter herauszoomen wieder zurück.
+const ISO_AB = 2.4; // ab dieser Kartenvergrößerung (px/m) in die Spielansicht
+function zuIso(x, y, stufe = 2) {
+  if (!man) return;
+  modus = 'iso'; overlay && setOverlay(overlay); // Ebenen gibt es nur in der Karte
+  Iso.setzeMitte(x, y); Iso.setzeZoom(stufe); Iso.groesse(vw, vh);
+  document.body.classList.add('iso'); $('t-iso').setAttribute('aria-pressed', 'true'); $('legend').hidden = true;
+  liveRect = null; liveSig = ''; hover = null; dirty = true; renderToolpanel();
+}
+function zuKarte() {
+  if (modus !== 'iso') return;
+  const cx = Iso.cam.x, cy = Iso.cam.y;
+  modus = 'karte'; cam.z = Math.min(ISO_AB * .7, 1.6); cam.x = cx - vw / cam.z / 2; cam.y = cy - vh / cam.z / 2; clampCam();
+  document.body.classList.remove('iso'); $('t-iso').setAttribute('aria-pressed', 'false');
+  liveRect = null; liveSig = ''; hover = null; dirty = true; renderToolpanel();
+}
+function zeichneIso() {
+  const m = [];
+  const umriss = (r, farbe, fill) => { if (fill) m.push({ P: r.P, breite: r.half * 2 + 1, farbe: fill }); for (const sd of [1, -1]) m.push({ P: offsetLine(r.P, sd * (r.half + .6)), breite: .45, farbe }); };
+  if (hover && hover !== selected && werkzeug === 'auswahl') umriss(hover, 'rgba(255,255,255,.7)');
+  for (const z of zugSel) if (z !== selected) umriss(z, 'rgba(255,226,90,.7)', 'rgba(255,226,90,.12)');
+  if (selected) umriss(selected, '#ffe25a', 'rgba(255,226,90,.18)');
+  if (werkzeug !== 'auswahl') m.push(...werkzeugMarker());
+  const fehlt = Iso.zeichne(vctx, { live: liveAktiv(), marker: m });
+  // Kamera der Karte mitführen (Rückweg, gespeicherte Position)
+  cam.x = Iso.cam.x - vw / cam.z / 2; cam.y = Iso.cam.y - vh / cam.z / 2;
+  $('lvl').textContent = `Spielansicht · ${Iso.blick()}blick · ${fmt(Iso.pxProM(), 0)} px/m`;
+  $('busy').hidden = !(store.active || store.queue.length || fehlt);
+  saveCam();
+}
+function werkzeugMarker() {
+  const out = [], a = ausbauVon(werkzeug);
+  if (a) {
+    if (vorschau) for (const r of vorschau) out.push({ P: r.P, breite: r.half * 2 + 2, farbe: a.gilt(r.m) ? 'rgba(92,207,138,.45)' : 'rgba(220,220,220,.3)' });
+    for (const r of strecke(false)) out.push({ P: r.P, breite: r.half * 2 + 2, farbe: a.gilt(r.m) ? 'rgba(92,207,138,.85)' : 'rgba(220,220,220,.55)', strich: a.gilt(r.m) ? null : [2, 2] });
+    for (const seg of wege) { const r = seg[seg.length - 1], q = r.P[Math.floor(r.P.length / 2)]; out.push({ x: q[0], y: q[1], r: 2.5, farbe: '#0d1f15', fill: '#5ccf8a' }); }
+  } else {
+    if (kHover) out.push({ x: kHover.x, y: kHover.y, r: 13, farbe: 'rgba(255,255,255,.8)' });
+    if (kSel) out.push({ x: kSel.x, y: kSel.y, r: 13, farbe: '#5ccf8a', fill: 'rgba(92,207,138,.3)' });
+  }
+  return out;
+}
+let radT = 0;
+function isoRad(dir) { // ein Rastschritt pro Mausrad-Geste
+  const now = performance.now(); if (now - radT < 140) return; radT = now;
+  if (dir > 0) Iso.zoom(1); else if (!Iso.zoom(-1)) { zuKarte(); return; }
+  dirty = true; renderToolpanel();
+}
+$('t-iso').onclick = () => modus === 'iso' ? zuKarte() : zuIso(cam.x + vw / cam.z / 2, cam.y + vh / cam.z / 2);
+$('r-l').onclick = () => { Iso.drehen(-1); dirty = true; };
+$('r-r').onclick = () => { Iso.drehen(1); dirty = true; };
+$('t-haus').onclick = () => { const an = $('t-haus').getAttribute('aria-pressed') !== 'true'; $('t-haus').setAttribute('aria-pressed', an); Iso.haeuserZeigen(!an); dirty = true; };
+
 const pointers = new Map(); let down = null, moved = false, pinch = null;
 const evPos = e => { const r = view.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
 view.addEventListener('pointerdown', e => {
@@ -840,14 +904,15 @@ view.addEventListener('pointermove', e => {
   const p = evPos(e);
   if (pointers.has(e.pointerId)) {
     const prev = pointers.get(e.pointerId); pointers.set(e.pointerId, p);
+    if (pinch && pointers.size === 2 && modus === 'iso') { const [a, b] = [...pointers.values()]; const d = Math.hypot(a.x - b.x, a.y - b.y); if (d > pinch.d * 1.25) { isoRad(1); pinch.d = d; } else if (d < pinch.d / 1.25) { isoRad(-1); pinch.d = d; } return; }
     if (pinch && pointers.size === 2) { const [a, b] = [...pointers.values()]; const d = Math.hypot(a.x - b.x, a.y - b.y), mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2; cam.x -= (mx - pinch.mx) / cam.z; cam.y -= (my - pinch.my) / cam.z; pinch.mx = mx; pinch.my = my; zoomAt(pinch.z * d / pinch.d, mx, my); return; }
     if (down && Math.hypot(p.x - down.x, p.y - down.y) > 4) moved = true;
-    if (moved) { cam.x -= (p.x - prev.x) / cam.z; cam.y -= (p.y - prev.y) / cam.z; clampCam(); dirty = true; }
+    if (moved) { if (modus === 'iso') Iso.verschiebe(p.x - prev.x, p.y - prev.y); else { cam.x -= (p.x - prev.x) / cam.z; cam.y -= (p.y - prev.y) / cam.z; clampCam(); } dirty = true; }
     return;
   }
   if (!man) return;
-  if (werkzeug !== 'auswahl') werkzeugHover(cam.x + p.x / cam.z, cam.y + p.y / cam.z);
-  const r = pickRoad(cam.x + p.x / cam.z, cam.y + p.y / cam.z);
+  if (werkzeug !== 'auswahl') werkzeugHover(...weltPunkt(p));
+  const r = pickRoad(...weltPunkt(p));
   if (r !== hover) { hover = r; dirty = true; }
   const tip = $('tip');
   if (r) { const m = r.m, bv = bikeValues(m); tip.innerHTML = `<b>${esc(m.name || CLS[m.cls])}</b>${CLS[m.cls]}${m.ms ? ' · Tempo ' + (m.ms === 7 ? 'Schritt' : m.ms) : ''}<br>Zustand ${Math.round(Math.min(m.cond ?? 100, m.tcond ?? 100))}${bv.use ? ' · Risiko ' + Math.round(bv.risk * 100) : ''}`; tip.hidden = false;
@@ -857,23 +922,23 @@ view.addEventListener('pointermove', e => {
 function endP(e) {
   if (!pointers.has(e.pointerId)) return; const p = pointers.get(e.pointerId); pointers.delete(e.pointerId);
   if (pinch) { if (pointers.size < 2) pinch = null; return; }
-  if (!moved && down && man && werkzeug !== 'auswahl') { werkzeugKlick(cam.x + p.x / cam.z, cam.y + p.y / cam.z); down = null; return; }
-  if (!moved && down && man) { const r = pickRoad(cam.x + p.x / cam.z, cam.y + p.y / cam.z);
+  if (!moved && down && man && werkzeug !== 'auswahl') { werkzeugKlick(...weltPunkt(p)); down = null; return; }
+  if (!moved && down && man) { const r = pickRoad(...weltPunkt(p));
     if (e.shiftKey && r && selected) {
       if (!multi.length) multi = [selected];
       const k = multi.findIndex(x => x.id === r.id);
       if (k >= 0) multi.splice(k, 1); else multi.push(r);
       zugModus = false;
       inspect(multi.length ? multi[multi.length - 1] : null);
-    } else { multi = []; inspect(r); } if (!r && cam.z < .22) zoomAt(Math.min(cam.z * 3, 1.2), p.x, p.y); }
+    } else { multi = []; inspect(r); } if (!r && modus === 'karte' && cam.z < .22) zoomAt(Math.min(cam.z * 3, 1.2), p.x, p.y); }
   down = null;
 }
 view.addEventListener('dblclick', () => { if (ausbauVon(werkzeug) && wege.length) werkzeugBauen(); });
 view.addEventListener('pointerup', endP); view.addEventListener('pointercancel', endP);
 view.addEventListener('pointerleave', () => { hover = null; $('tip').hidden = true; dirty = true; });
-view.addEventListener('wheel', e => { e.preventDefault(); const p = evPos(e); zoomAt(cam.z * Math.pow(1.0015, -e.deltaY), p.x, p.y); }, { passive: false });
-$('z-in').onclick = () => zoomAt(cam.z * 1.5, vw / 2, vh / 2);
-$('z-out').onclick = () => zoomAt(cam.z / 1.5, vw / 2, vh / 2);
+view.addEventListener('wheel', e => { e.preventDefault(); if (modus === 'iso') return isoRad(-e.deltaY); const p = evPos(e); zoomAt(cam.z * Math.pow(1.0015, -e.deltaY), p.x, p.y); if (cam.z > ISO_AB && !overlay) { const [x, y] = weltPunkt({ x: vw / 2, y: vh / 2 }); zuIso(x, y, 1); } }, { passive: false });
+$('z-in').onclick = () => { if (modus === 'iso') return isoRad(1); zoomAt(cam.z * 1.5, vw / 2, vh / 2); if (cam.z > ISO_AB && !overlay) zuIso(cam.x + vw / cam.z / 2, cam.y + vh / cam.z / 2, 1); };
+$('z-out').onclick = () => { if (modus === 'iso') { radT = 0; return isoRad(-1); } zoomAt(cam.z / 1.5, vw / 2, vh / 2); };
 document.querySelectorAll('[data-ov]').forEach(b => b.onclick = () => setOverlay(b.dataset.ov));
 $('t-names').onclick = () => { showNames = !showNames; $('t-names').setAttribute('aria-pressed', showNames); dirty = true; };
 window.addEventListener('keydown', e => {
@@ -885,11 +950,13 @@ window.addEventListener('keydown', e => {
   if (k === 'escape') { if (werkzeug !== 'auswahl' && (wege.length || kSel)) $('tp-abbruch').click(); else if (werkzeug !== 'auswahl') setWerkzeug('auswahl'); else inspect(null); return; }
   if (k === 'enter' && werkzeug !== 'auswahl') { werkzeugBauen(); return; }
   if (k === 'backspace' && werkzeug !== 'auswahl') { e.preventDefault(); werkzeugZurueck(); return; }
+  if (modus === 'iso' && (k === 'q' || k === 'e')) { Iso.drehen(k === 'q' ? -1 : 1); dirty = true; return; }
+  if (modus === 'iso' && k === 'h') { $('t-haus').click(); return; }
   if (k === 'z') setOverlay('cond'); if (k === 's') setOverlay('risk'); if (k === 'r') setOverlay('net'); if (k === 't') setOverlay('route'); if (k === 'v') setOverlay('verkehr'); if (k === 'f') setOverlay('zuf'); if (k === 'l') setLive(!liveAn); if (k === 'b') setOverlay('steig'); if (k === 'g') setRelief(!reliefAn); if (k === 'i') $('t-iso').click(); if (k === 'n') $('t-names').click();
-  if (k === '+' || k === '=') $('z-in').click(); if (k === '-') $('z-out').click();
-  const pan = 120 / cam.z;
+  if (k === '+' || k === '=') { radT = 0; $('z-in').click(); } if (k === '-') { radT = 0; $('z-out').click(); }
+  const pan = 120 / pxProM();
   if (k === 'arrowleft') cam.x -= pan; if (k === 'arrowright') cam.x += pan; if (k === 'arrowup') cam.y -= pan; if (k === 'arrowdown') cam.y += pan;
-  if (k.startsWith('arrow')) { clampCam(); dirty = true; }
+  if (k.startsWith('arrow')) { if (modus === 'iso') { const d = { arrowleft: [120, 0], arrowright: [-120, 0], arrowup: [0, 120], arrowdown: [0, -120] }[k]; Iso.verschiebe(d[0], d[1]); } else clampCam(); dirty = true; }
 });
 document.fonts && document.fonts.ready.then(() => { dirty = true; });
 

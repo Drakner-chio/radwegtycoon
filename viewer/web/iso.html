@@ -1,36 +1,6 @@
 <!doctype html>
-<html lang="de">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Radweg Tycoon – Iso-Prototyp</title>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;600&family=Silkscreen:wght@400;700&family=VT323&display=swap">
-<link rel="stylesheet" href="style.css">
-<style>
-  body{padding:0}
-  .iso{position:fixed;inset:0;background:#101713}
-  #view{width:100%;height:100%;image-rendering:pixelated;cursor:grab}
-  .bar{position:absolute;top:8px;left:8px;right:8px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;pointer-events:none}
-  .bar>*{pointer-events:auto}
-  .bar .titel{padding:4px 8px;font-family:var(--f-display);font-size:11px}
-  .bar button,.bar a.bev{font-family:var(--f-display);font-size:10px;text-decoration:none;color:var(--ink)}
-  #info{position:absolute;left:50%;bottom:26px;transform:translateX(-50%);font-family:var(--f-display);font-size:10px;color:#e8e2d2;background:rgba(16,23,19,.75);padding:3px 8px;white-space:nowrap}
-</style>
-</head>
-<body>
-<div class="iso">
-  <canvas id="view" aria-label="Isometrische Ansicht"></canvas>
-  <div class="bar">
-    <a class="bev" id="zurueck" href="index.html">← Karte</a>
-    <span class="win titel">Iso-Prototyp · <span id="region">…</span></span>
-    <button class="bev" id="r-l" title="Drehen (Q)">⟲ Q</button><button class="bev" id="r-r" title="Drehen (E)">E ⟳</button>
-    <button class="bev" id="z-out">−</button><button class="bev" id="z-in">+</button>
-    <button class="bev" id="t-haus" aria-pressed="false">Häuser flach (H)</button>
-    <button class="bev" id="t-live" aria-pressed="true">Live (L)</button>
-  </div>
-  <div id="info"></div>
-  <div class="attr">Kartendaten © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap-Mitwirkende</a> (ODbL)</div>
-</div>
-<script type="module" src="js/iso.js"></script>
-</body>
-</html>
+<html lang="de"><head><meta charset="utf-8"><title>Radweg Tycoon</title>
+<script>
+// Die Iso-Ansicht ist jetzt die Spielansicht im Hauptspiel – alte Links weiterleiten
+const p = new URLSearchParams(location.search); p.set('ansicht', 'iso'); location.replace('index.html?' + p.toString());
+</script></head><body></body></html>

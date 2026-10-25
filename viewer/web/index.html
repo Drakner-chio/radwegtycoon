@@ -90,13 +90,14 @@
       <button id="t-relief" aria-pressed="true" title="Relief (G)">Relief</button>
       <button id="t-live" aria-pressed="true" title="Live-Verkehr (L)">Live</button>
       <button id="t-names" aria-pressed="true" title="Straßennamen (N)">Namen</button>
-      <button id="t-iso" title="Isometrische Ansicht der Bildmitte (I)">Iso ↗</button>
+      <button id="t-iso" aria-pressed="false" title="Spielansicht (I) – auch durch weites Hineinzoomen">Spielansicht</button>
+      <button id="t-haus" class="nur-iso" aria-pressed="false" title="Häuser flach (H)">Häuser flach</button>
     </div>
   </div>
   <div class="glass legend" id="legend" hidden></div>
   <div class="livebox" id="live" hidden></div>
 
-  <div class="zoom"><button class="btn" id="z-in" aria-label="Hineinzoomen">+</button><button class="btn" id="z-out" aria-label="Herauszoomen">−</button></div>
+  <div class="zoom"><button class="btn nur-iso" id="r-l" title="Drehen (Q)">⟲</button><button class="btn nur-iso" id="r-r" title="Drehen (E)">⟳</button><button class="btn" id="z-in" aria-label="Hineinzoomen">+</button><button class="btn" id="z-out" aria-label="Herauszoomen">−</button></div>
   <div class="glass tip" id="tip" hidden></div>
   <div class="attr">Kartendaten © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap-Mitwirkende</a> (ODbL)</div>
 

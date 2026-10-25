@@ -1,6 +1,5 @@
-// Radweg Tycoon – Prototyp isometrische Detailansicht.
-//
-// Gleiche Daten wie der Kartenviewer (Kacheln Stufe 0, Ausbauten, Verkehr), andere Darstellung:
+// Radweg Tycoon – Spielansicht (isometrisch). Wird vom Hauptspiel (app.js) als zweite Ansicht genutzt:
+// gleiche Kacheln, Ausbauten, Werkzeuge und derselbe Live-Verkehr wie die Karte, andere Darstellung:
 // - Projektion 2:1-isometrisch, vierfach drehbar. Welt (x Ost, y Süd, z hoch, Meter) -> gedreht (u, v) ->
 //   Bild: sx = (u − v)·S, sy = (u + v)·S/2 − z·S·HZ.  Betrachter schaut aus Richtung +u+v.
 // - Gezeichnet wird in eine niedrig aufgelöste Leinwand (1 Pixel = PX Bildschirmpunkte) und hart
@@ -9,15 +8,13 @@
 //   Wohnhäusern, sonst Flachdach. Bäume prozedural in Wald, Gärten und Parks (deterministisch).
 // - Statische Szene wird zwischengespeichert; Fahrzeuge kommen pro Bild darüber, Gebäude und Bäume
 //   davor werden über ihnen neu gezeichnet (Verdeckung).
-import { TileStore, isRoad } from './tiles.js';
+import { isRoad } from './tiles.js';
 import { offsetLine, hashStr, mulberry32 } from './render.js';
-import { Spiel } from './game.js';
-import { Verkehr } from './verkehr.js';
-import { Live, at } from './live.js';
+import { at } from './live.js';
 
-const $ = id => document.getElementById(id);
-const PX = 2, HZ = 0.86;
-const ZOOMS = [1.5, 2, 3, 4, 6];
+export const PX = 2;
+const HZ = 0.86;
+export const ZOOMS = [1, 1.5, 2, 3, 4, 6];
 
 /* ----------------------------- Farben ----------------------------- */
 const C = {
@@ -35,16 +32,11 @@ const BODEN = { wohngebiet: 'garten', garten: 'garten', park: 'garten', kleingar
   gewerbe: 'gewerbe', bahn: 'hof', hof: 'hof', baustelle: 'hof', militaer: 'gras', parkplatz: 'parkplatz', friedhof: 'friedhof', sportanlage: 'gras', sportplatz: 'garten', laufbahn: 'radweg', fels: 'hof' };
 
 /* ----------------------------- Zustand ----------------------------- */
-const params = new URLSearchParams(location.search);
-const region = params.get('region') || 'lippe';
-const base = params.get('karte') || `daten/${region}/karte/`;
-let man, store, spiel, verkehr = null;
-const live = new Live();
-const view = $('view'), vctx = view.getContext('2d');
+let man, store, spiel, live, hoehen = null;
 const lo = document.createElement('canvas'), lctx = lo.getContext('2d');          // Bild in Pixelauflösung
 const st = document.createElement('canvas'), sctx = st.getContext('2d');          // statische Szene mit Rand
-const cam = { x: 0, y: 0, zi: 2, rot: 0 };
-let S = ZOOMS[cam.zi], W = 0, H = 0, statisch = null, liveAn = true, haeuser = true, dirty = true, letzt = 0;
+export const cam = { x: 0, y: 0, zi: 3, rot: 0 };
+let S = ZOOMS[cam.zi], W = 0, H = 0, statisch = null, haeuser = true;
 const MARGE = 160; // Pixel Rand der statischen Szene
 
 /* ----------------------------- Projektion ----------------------------- */
@@ -441,7 +433,7 @@ function fahrzeug(c, g) {
 }
 
 /* ----------------------------- Bild ----------------------------- */
-function bild() {
+export function zeichne(vctx, opt = {}) {
   if (!statisch || statisch.S !== S || statisch.cam.rot !== cam.rot || statisch.W !== W || statisch.H !== H) baueStatisch();
   // Verschiebung gegenüber der statischen Szene (ganze Pixel)
   const versatz = () => { const a = P(statisch.cam.x, statisch.cam.y); return [Math.round(a[0] - W / 2), Math.round(a[1] - H / 2)]; };
@@ -451,7 +443,7 @@ function bild() {
   lctx.drawImage(st, -MARGE + ou, -MARGE + ov);
   // Ampeln und Fahrzeuge über der Szene; davorliegende Gebäude/Bäume darüber neu
   const fz = [];
-  if (liveAn) for (const g of live.agents) { const q = at(g.e, g.s); fz.push({ g, d: tiefe(q[0], q[1]) }); }
+  if (opt.live) for (const g of live.agents) { const q = at(g.e, g.s); fz.push({ g, d: tiefe(q[0], q[1]) }); }
   for (const a of statisch.ampeln) fz.push({ a, d: a.d });
   fz.sort((a, b) => a.d - b.d);
   const neu = new Set();
@@ -462,75 +454,44 @@ function bild() {
     for (const o of statisch.obj) if (o.d > f.d + 1 && o.bb && px > o.bb[0] - 6 && px < o.bb[2] + 6 && py > o.bb[1] - 6 && py < o.bb[3] + 8) neu.add(o);
   }
   if (neu.size) for (const o of [...neu].sort((a, b) => a.d - b.d)) o.typ === 'h' ? gebaeude(lctx, o.o, 0, 0) : o.typ === 'l' ? laterne(lctx, o.o, 0, 0) : baum(lctx, o.o, 0, 0);
+  if (opt.marker) marker(lctx, opt.marker);
+  vctx.setTransform(1, 0, 0, 1, 0, 0);
   vctx.imageSmoothingEnabled = false;
   vctx.drawImage(lo, 0, 0, W * PX * dpr(), H * PX * dpr());
+  return statisch.fehlt;
 }
 const dpr = () => window.devicePixelRatio || 1;
 
-/* ----------------------------- Live-Verkehr ----------------------------- */
-let liveSig = '', infoT = 0;
-function liveNetz() {
-  const r = sichtbereich(), sig = r.map(v => Math.round(v / 50)).join() + ':' + store.cache.size + ':' + (verkehr && verkehr.erg ? verkehr.erg.t : 0);
-  if (sig === liveSig) return; liveSig = sig;
-  const { tiles } = kachelnIn(r), roads = [], sig2 = new Set();
-  for (const t of tiles) { for (const rd of t.roads) if (!(rd.bb[2] < r[0] || rd.bb[0] > r[2] || rd.bb[3] < r[1] || rd.bb[1] > r[3])) roads.push(rd); for (const n of t.nodes) if (n.f === 'traffic_signals' && !n.on) sig2.add(n.id); }
-  const kr = new Set(); for (const [id, k] of Object.entries(spiel.s.knoten || {})) { if (k.ampel) sig2.add(Number(id)); if (k.kreisel) kr.add(Number(id)); }
-  live.bauen(roads, sig2, id => { const v = verkehr && verkehr.erg ? verkehr.volumen(id) : null; return v === null ? 15 : v; }, r, kr);
+/* ----------------------------- Markierungen (Auswahl, Werkzeuge) ----------------------------- */
+// { P: Polylinie, breite (m), farbe, strich } oder { x, y, r (m), farbe, fill }
+function marker(c, liste) {
+  c.lineCap = 'round'; c.lineJoin = 'round';
+  for (const m of liste) {
+    if (m.P) { linie(c, m.P, 0, Math.max(m.breite, 3 / S), m.farbe, m.strich, 0, 0); continue; }
+    const p = P(m.x, m.y), rx = Math.max(m.r * S * 1.414, 6), ry = rx / 2;
+    c.beginPath(); c.ellipse(p[0], p[1], rx, ry, 0, 0, Math.PI * 2);
+    if (m.fill) { c.fillStyle = m.fill; c.fill(); } c.lineWidth = 1.5; c.strokeStyle = m.farbe; c.stroke();
+  }
 }
 
-/* ----------------------------- Ablauf ----------------------------- */
-function groesse() {
-  const cssW = view.clientWidth, cssH = view.clientHeight;
-  view.width = Math.round(cssW * dpr()); view.height = Math.round(cssH * dpr());
-  W = Math.ceil(cssW / PX); H = Math.ceil(cssH / PX); lo.width = W; lo.height = H; statisch = null; dirty = true;
-}
-function schleife(now) {
-  const dt = Math.min(.25, (now - (letzt || now)) / 1000); letzt = now;
-  if (liveAn) { liveNetz(); for (let t = dt; t > 1e-6; t -= .05) live.schritt(Math.min(.05, t)); dirty = true; }
-  if (store && (store.active || store.queue.length)) dirty = true;
-  if (dirty && man) { dirty = false; bild(); }
-  if (now - infoT > 500) { infoT = now; const z = live.zahlen(); $('info').textContent = `${['N', 'O', 'S', 'W'][cam.rot]}-Blick · Zoom ${S} · ${z.autos} Autos · ${z.raeder} Räder` + (store && (store.active || store.queue.length) ? ' · lädt …' : ''); }
-  requestAnimationFrame(schleife);
-}
-async function start() {
-  try { man = await (await fetch(base + 'manifest.json', { cache: 'no-cache' })).json(); } catch (e) { $('info').textContent = 'Keine Karte unter ' + base; return; }
-  spiel = new Spiel(man.slug);
-  store = new TileStore(base, man, () => { dirty = true; });
-  store.patchFor = id => spiel.patchFor(id);
-  $('region').textContent = man.name;
-  // Kamera: aus der Adresse, sonst aus der Karte, sonst Mitte
-  const W0 = man.bbox_utm[2] - man.bbox_utm[0], H0 = man.bbox_utm[3] - man.bbox_utm[1];
-  let x = +params.get('x'), y = +params.get('y');
-  if (!x && !y) { try { const s = JSON.parse(localStorage.getItem('rtc-cam-' + man.slug)); if (s) { x = s.x + 1000 / 2 / s.z; y = s.y + 700 / 2 / s.z; } } catch (e) {} }
-  cam.x = x || W0 / 2; cam.y = y || H0 / 2;
-  $('zurueck').href = `index.html?region=${encodeURIComponent(region)}`;
-  new ResizeObserver(groesse).observe(view); groesse();
-  if (man.netz) { verkehr = new Verkehr(base, man, id => spiel.patchFor(id)); verkehr.knotenBau = id => spiel.knotenFor(id); verkehr.laden().then(() => verkehr.rechnen()).catch(() => {}); }
-  requestAnimationFrame(schleife);
-}
-
-/* ----------------------------- Bedienung ----------------------------- */
-let zieh = null;
-view.addEventListener('pointerdown', e => { zieh = { x: e.clientX, y: e.clientY, cx: cam.x, cy: cam.y }; view.setPointerCapture(e.pointerId); });
-view.addEventListener('pointermove', e => {
-  if (!zieh) return;
-  const dx = (e.clientX - zieh.x) / PX, dy = (e.clientY - zieh.y) / PX, a = dx / S, b = dy * 2 / S;
-  const du = -(a + b) / 2, dv = -(b - a) / 2; // Bildverschiebung -> gedrehte Weltverschiebung
+/* ----------------------------- Schnittstelle ----------------------------- */
+export function init(d) { man = d.man; store = d.store; spiel = d.spiel; live = d.live; hoehen = d.hoehen || null; }
+export function groesse(cssW, cssH) { W = Math.ceil(cssW / PX); H = Math.ceil(cssH / PX); lo.width = W; lo.height = H; statisch = null; }
+export function ungueltig() { statisch = null; }
+export function setzeMitte(x, y) { cam.x = x; cam.y = y; }
+export const pxProM = () => S * PX;                       // Bildschirmpunkte je Meter
+export const zoomStufe = () => cam.zi;
+export function zoom(d) { const z = cam.zi + d; if (z < 0) return false; cam.zi = Math.min(ZOOMS.length - 1, z); S = ZOOMS[cam.zi]; baumCache.clear(); statisch = null; return true; }
+export function setzeZoom(i) { cam.zi = Math.max(0, Math.min(ZOOMS.length - 1, i)); S = ZOOMS[cam.zi]; baumCache.clear(); statisch = null; }
+export function drehen(d) { cam.rot = (cam.rot + d + 4) % 4; statisch = null; }
+export function haeuserZeigen(an) { haeuser = an; statisch = null; }
+// Bildschirmpunkt (CSS-Pixel) -> Welt
+export function weltVon(cssX, cssY) { return welt(cssX / PX, cssY / PX); }
+// Verschieben um CSS-Pixel
+export function verschiebe(dx, dy) {
+  const a = dx / PX / S, b = dy / PX * 2 / S, du = -(a + b) / 2, dv = -(b - a) / 2;
   const k = { 0: [du, dv], 1: [-dv, du], 2: [-du, -dv], 3: [dv, -du] }[cam.rot];
-  cam.x = zieh.cx + k[0]; cam.y = zieh.cy + k[1]; dirty = true;
-});
-view.addEventListener('pointerup', () => { zieh = null; });
-view.addEventListener('wheel', e => { e.preventDefault(); zoom(e.deltaY < 0 ? 1 : -1); }, { passive: false });
-function zoom(d) { cam.zi = Math.max(0, Math.min(ZOOMS.length - 1, cam.zi + d)); S = ZOOMS[cam.zi]; baumCache.clear(); statisch = null; dirty = true; }
-function drehen(d) { cam.rot = (cam.rot + d + 4) % 4; statisch = null; dirty = true; }
-window.addEventListener('keydown', e => {
-  const k = e.key.toLowerCase();
-  if (k === 'q') drehen(-1); if (k === 'e') drehen(1); if (k === '+' || k === '=') zoom(1); if (k === '-') zoom(-1);
-  if (k === 'h') { haeuser = !haeuser; $('t-haus').setAttribute('aria-pressed', !haeuser); statisch = null; dirty = true; }
-  if (k === 'l') { liveAn = !liveAn; $('t-live').setAttribute('aria-pressed', liveAn); if (!liveAn) live.agents = []; dirty = true; }
-});
-$('z-in').onclick = () => zoom(1); $('z-out').onclick = () => zoom(-1);
-$('r-l').onclick = () => drehen(-1); $('r-r').onclick = () => drehen(1);
-$('t-haus').onclick = () => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'h' }));
-$('t-live').onclick = () => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'l' }));
-start();
+  cam.x += k[0]; cam.y += k[1];
+}
+export { sichtbereich };
+export const blick = () => ['Nord', 'Ost', 'Süd', 'West'][cam.rot];
