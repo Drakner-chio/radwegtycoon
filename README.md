@@ -67,9 +67,9 @@ Belag, Zustand und Risiko fürs Rad. Die Kacheln werden beim Verschieben und Zoo
 
 ```bash
 docker build -t radwegtycoon-viewer viewer/
-docker run -d --name radwegtycoon-viewer --restart unless-stopped -p 8090:80 \
+docker run -d --name radwegtycoon-viewer --restart unless-stopped -p 8190:80 \
   -v /mnt/user/appdata/radwegtycoon:/usr/share/nginx/html/daten:ro radwegtycoon-viewer
-# dann im Browser:  http://<server>:8090/?region=lippe
+# dann im Browser:  http://<server>:8190/?region=lippe
 ```
 
 `region` ist der `slug` der Regionsdatei, der Viewer lädt `daten/<slug>/karte/`. Nach einem neuen
