@@ -189,7 +189,13 @@ export class Verkehr {
     for (const e of paare) { const m = volA[e] * k, z = d[e], l = this.len[e]; ab += l * Math.abs(m - z) / z; w += l;
       const x = Math.log(m), y = Math.log(z); sx += x; sy += y; sxx += x * x; syy += y * y; sxy += x * y; }
     const n = paare.length, kov = sxy - sx * sy / n, r = n > 2 ? kov / Math.sqrt((sxx - sx * sx / n) * (syy - sy * sy / n)) : null;
-    return { k, kRoh: roh, zaehlstellen: n, abweichung: w ? ab / w : null, korrelation: r && isFinite(r) ? r : null };
+    // Aufschlüsselung: Median Zählung/Modell je Zählwert-Stufe und je OSM-Klasse (zeigt, wo das Modell danebenliegt)
+    const gruppen = [];
+    const gruppe = (name, test) => { const v = paare.filter(test).map(e => d[e] / volA[e]).sort((x, y) => x - y); if (v.length >= 5) gruppen.push({ name, n: v.length, median: v[v.length >> 1], q1: v[v.length >> 2], q3: v[(3 * v.length) >> 2] }); };
+    for (const [lo, hi] of [[0, 3000], [3000, 8000], [8000, 15000], [15000, Infinity]]) gruppe(`${lo / 1000}–${hi === Infinity ? '' : hi / 1000}${hi === Infinity ? ' und mehr' : ''} Tsd. Kfz`, e => d[e] >= lo && d[e] < hi);
+    for (const c of ['L', 'dorf', 'wohn', 'zufahrt']) gruppe(`Klasse ${c}`, e => this.netz.klassen[this.netz.kanten.cls[e]] === c);
+    gruppe('Rand des Gebiets (äußere 15 %)', e => this.gebiet ? Math.hypot(this.kx[this.a[e]] - this.gebiet.x, this.ky[this.a[e]] - this.gebiet.y) > .85 * this.gebiet.r : false);
+    return { k, kRoh: roh, zaehlstellen: n, abweichung: w ? ab / w : null, korrelation: r && isFinite(r) ? r : null, gruppen };
   }
   kanteImGebiet(e) { const g = this.gebiet; if (!g) return true; const v = this.a[e]; return Math.hypot(this.kx[v] - g.x, this.ky[v] - g.y) <= g.r; }
 
@@ -210,7 +216,7 @@ export class Verkehr {
       this.vorher = this.erg;
       this.erg = { vol: Float32Array.from(r.vol), volA, kfz, ...Z, wege: r.s.wege, rad: r.s.rad, radKm: r.s.radKm, autoFahrten: r.s.auto, autoKm: r.s.autoKm,
         anteil: r.s.wege ? r.s.rad / r.s.wege : 0, zufrieden: zw ? zs / zw : 0, ew: this.einwohner(), kfzKm, stauKm,
-        eichung: { k: B.k, kRoh: B.kRoh, zaehlstellen: B.zaehlstellen, abweichung: B.abweichung, korrelation: B.korrelation }, ms: performance.now() - t0, t: Date.now() };
+        eichung: { k: B.k, kRoh: B.kRoh, zaehlstellen: B.zaehlstellen, abweichung: B.abweichung, korrelation: B.korrelation, gruppen: B.gruppen }, ms: performance.now() - t0, t: Date.now() };
     } finally { this.laeuft = false; }
     this.onErgebnis(this.erg, this.vorher);
     if (this.wieder) { this.wieder = false; this.rechnen(); }
