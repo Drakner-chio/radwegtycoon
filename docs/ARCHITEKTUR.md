@@ -73,7 +73,8 @@ geschätzt ist.
 1. ~~Kachel-Viewer~~ erledigt: `viewer/` (siehe unten).
 2. Spiel auf dem Graphen: ~~Bauen pro Kante/Straßenzug~~ (Stufe 1 erledigt, `viewer/web/js/game.js`);
    Verkehr Ebene 1 (Nachfrage, Radrouten, Radanteil, Zufriedenheit, Jahresbudget) erledigt, siehe unten;
-   Ebene 2 (sichtbare Autos/Räder) erste Fassung erledigt; offen: Autoverkehr im Modell, Eichung, Linksabbiegen/Gegenverkehr.
+   Ebene 2 (sichtbare Autos/Räder) erste Fassung erledigt; Autoverkehr im Modell mit Eichung an Zählstellen erledigt;
+   offen: Linksabbiegen/Gegenverkehr, BASt-Zählstellen für Autobahnen, Pendlerstatistik.
 3. Grobe Ebene: Verkehrsströme zwischen Orten, geeicht mit Straßenverkehrszählung und Pendlerstatistik.
 4. Weitere Daten: Zensus-Raster (Einwohner), Unfallatlas (Radunfälle), Zählstellen.
 
@@ -124,7 +125,20 @@ geschätzt ist.
   exp(−d / 6 km)); Dijkstra auf gefühlten Metern bis 16 km; Radanteil
   `0,38 / (1 + (L / 4,2 km)^2,4) · exp(−1,1 · (q − 1,25))` mit q = gefühlt / echt; Umlegen auf den
   Kürzeste-Wege-Baum. Zufriedenheit je Zelle: wie direkt und stressarm die Ziele bis 10 km erreichbar sind.
-  Wege innerhalb einer Zelle und der Autoverkehr sind noch nicht modelliert. Alle Werte: `PARAM`.
+  Wege innerhalb einer Zelle sind nicht modelliert. Alle Werte: `PARAM`.
+- Autoverkehr (gleicher Durchlauf, zweiter Dijkstra je Startzelle auf Fahrzeit in Sekunden):
+  Kfz-Fahrten je Ziel = Wege × (1 − Radanteil) × 0,74 (Auto statt ÖPNV) × (1 − exp(−L / 1,3 km)) (kurze Wege
+  zu Fuß) × 0,8 (Fahrer statt Mitfahrer); Suche bis 30 min. Fahrzeit = Länge / (Tempolimit × Reiseanteil je
+  Klasse), Einbahnstraßen nur vorwärts, Fahrradstraße und Anliegerstraßen × 4, Ampel +12 s, Kreisel +5 s
+  (`AUTO` in `verkehr.js`). Die Rad-Faktoren bekommen im Mischverkehr einen Zuschlag bis 0,75 bei viel Kfz-Verkehr.
+- Grundzustand je Spielgebiet (ohne Bauten, beim ersten Rechnen): Lauf 1 frei fließend, daraus Stauzuschläge
+  nach BPR `t = t0 · (1 + 0,15 · (V/C)^4)` mit Kapazität je Klasse, Lauf 2 mit Stau. Eichfaktor k = Median aus
+  Zählwert / Modell an den gezählten Kanten im Gebiet (begrenzt auf 0,6–3; er deckt Durchgangs- und Fernverkehr
+  ab, den das Binnenmodell nicht kennt); Nebenstraßen bekommen √k (0,8–1,5).
+- Angezeigte Kfz/Tag: gezählte Kanten = Zählwert + k × (Modell − Grundzustand), sonst k × Modell; mindestens
+  10 % des Grundzustands (Anlieger). Spielzüge rechnen mit den Stauzuschlägen des Grundzustands, damit ohne
+  Bauten genau der Grundzustand herauskommt. Ebene „Autoverkehr“ (P) zeigt Mengen und Stau (> 90 % Auslastung),
+  der Reiter Verkehr die Eichung (Zahl der Zählstellen, mittlere Abweichung, Korrelation im log-Raum).
 - Spielschleife: Ausbau → Neuberechnung (Anzeige der Änderung) → „Jahr abschließen“ bringt Einnahmen
   `400.000 € + 12.000 € × Zufriedenheit + 2 Mio. € × Radanteil` (Platzhalter bis zur Eichung).
 
@@ -223,7 +237,7 @@ geschätzt ist.
 |---|---|---|
 | Zensus 2022, 100-m-Gitter (Destatis, dl-de/by-2-0) | Einwohner je Zelle (EPSG:3035) | Einwohner der Verkehrszellen statt Gebäudeschätzung; Startkapital, Einnahmen |
 | Unfallatlas (Statistische Ämter, dl-de/by-2-0) | Unfälle mit Personenschaden, punktgenau, NRW ab 2019 | Ebene „Unfälle“ (X), Radunfälle je Kante im Info-Fenster; später Eichung des Risikos |
-| Verkehrswerte Straßen.NRW (dl-de/by-2-0) | DTV Kfz und Schwerverkehr je Abschnitt (B, L, K) | Kfz/Tag im Info-Fenster, Mengen im Live-Verkehr; später Eichung des Autoverkehrs |
+| Verkehrswerte Straßen.NRW (dl-de/by-2-0) | DTV Kfz und Schwerverkehr je Abschnitt (B, L, K) | Eichung des Autoverkehrs im Verkehrsmodell, Kfz/Tag im Info-Fenster und im Live-Verkehr |
 
 - Downloads landen in `/data/quellen/{zensus,unfallatlas,strassen_nrw}` und werden wiederverwendet.
 - Zuordnung: Zensus-Zellen per Koordinatenumrechnung zu den 500-m-Zellen; Unfälle zur nächsten Kante bis 30 m

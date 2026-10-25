@@ -180,7 +180,7 @@ function liveNetz(now) {
   const radVol = id => { const v = verkehr && verkehr.erg ? verkehr.volumen(id) : null; return v === null ? 15 : v; };
   const kreisel = new Set();
   for (const [id, k] of Object.entries(spiel.s.knoten)) { if (k.ampel) signale.add(Number(id)); if (k.kreisel) kreisel.add(Number(id)); }
-  live.bauen(roads, signale, radVol, liveRect, kreisel, id => { const d = verkehr && verkehr.netz ? verkehr.dtv(id) : null; return d ? d.kfz : null; });
+  live.bauen(roads, signale, radVol, liveRect, kreisel, id => { if (!verkehr || !verkehr.netz) return null; const k = verkehr.kfz(id); if (k !== null) return k; const d = verkehr.dtv(id); return d ? d.kfz : null; });
 }
 function liveSchritt(now) {
   const dt = Math.min(.25, (now - (liveLetzt || now)) / 1000); liveLetzt = now;
@@ -317,30 +317,34 @@ function routeKanten(n) {
 }
 /* ----------------------------- Verkehr ----------------------------- */
 const VK_KL = [[1, '#a9d3f0', 1.5], [20, '#5aa9e6', 2.5], [100, '#2f6fd6', 4], [300, '#6a3fd0', 6], [1000, '#c0207a', 9]];
-const vkKlasse = v => { let k = -1; for (let i = 0; i < VK_KL.length; i++) if (v >= VK_KL[i][0]) k = i; return k; };
-function drawVerkehr(top) {
+const KFZ_KL = [[50, '#c9c2b4', 1.2], [1000, '#e6c35a', 2.5], [4000, '#ef9a3c', 4], [10000, '#e0533a', 6.5], [25000, '#a3123a', 9]];
+function drawVerkehr(top, kfz = false) {
   if (!verkehr || !verkehr.erg) return;
-  const E = verkehr.erg.vol, wpx = 1 / cam.z;
+  const KL = kfz ? KFZ_KL : VK_KL, klasse = v => { let k = -1; for (let i = 0; i < KL.length; i++) if (v >= KL[i][0]) k = i; return k; };
+  const E = kfz ? verkehr.erg.kfz : verkehr.erg.vol, wpx = 1 / cam.z;
   const vx0 = cam.x, vy0 = cam.y, vx1 = cam.x + vw / cam.z, vy1 = cam.y + vh / cam.z;
   vctx.lineCap = 'round'; vctx.lineJoin = 'round';
-  const paths = VK_KL.map(() => new Path2D());
+  const paths = KL.map(() => new Path2D()), stau = kfz ? new Path2D() : null;
   if (top >= 2) {
     for (const t of loadedTiles(0)) for (const r of t.roads) {
       if (!r.own || r.bb[2] < vx0 || r.bb[0] > vx1 || r.bb[3] < vy0 || r.bb[1] > vy1) continue;
       const e = verkehr.idx.get(r.id); if (e === undefined) continue;
-      const k = vkKlasse(E[e]); if (k < 0) continue;
+      const k = klasse(E[e]); if (k < 0) continue;
       const P = r.P, p = paths[k]; p.moveTo(P[0][0], P[0][1]); for (let i = 1; i < P.length; i++) p.lineTo(P[i][0], P[i][1]);
+      if (stau && E[e] / verkehr.kapazitaet(e) > .9) { stau.moveTo(P[0][0], P[0][1]); for (let i = 1; i < P.length; i++) stau.lineTo(P[i][0], P[i][1]); }
     }
   } else {
     const min = cam.z < .02 ? 3 : cam.z < .06 ? 2 : 1, { a, b, kx, ky } = verkehr;
     for (let e = 0; e < verkehr.nE; e++) {
-      const k = vkKlasse(E[e]); if (k < min) continue;
+      const k = klasse(E[e]); if (k < min) continue;
       const x0 = kx[a[e]], y0 = ky[a[e]], x1 = kx[b[e]], y1 = ky[b[e]];
       if (Math.max(x0, x1) < vx0 || Math.min(x0, x1) > vx1 || Math.max(y0, y1) < vy0 || Math.min(y0, y1) > vy1) continue;
       paths[k].moveTo(x0, y0); paths[k].lineTo(x1, y1);
+      if (stau && E[e] / verkehr.kapazitaet(e) > .9) { stau.moveTo(x0, y0); stau.lineTo(x1, y1); }
     }
   }
-  paths.forEach((p, k) => { vctx.lineWidth = VK_KL[k][2] * wpx; vctx.strokeStyle = VK_KL[k][1]; vctx.stroke(p); });
+  if (stau) { vctx.lineWidth = 14 * wpx; vctx.strokeStyle = 'rgba(255,40,60,.35)'; vctx.stroke(stau); }
+  paths.forEach((p, k) => { vctx.lineWidth = KL[k][2] * wpx; vctx.strokeStyle = KL[k][1]; vctx.stroke(p); });
 }
 const STEIG = [[0, '#3fae4a'], [30, '#9cc23e'], [50, '#e2c43a'], [80, '#e48a34'], [120, '#d8452f']];
 const steigKl = v => { let k = 0; for (let i = 0; i < STEIG.length; i++) if (v >= STEIG[i][0]) k = i; return k; };
@@ -436,7 +440,7 @@ function setupVerkehr() {
   verkehr.gebiet = spiel.s.gebiet;
   verkehr.onStatus = t => { $('vk-status').textContent = t; };
   verkehr.onErgebnis = (erg, vorher) => { renderVerkehr(erg, vorher);
-    if (wirkungOrt && vorher) { const da = (erg.anteil - vorher.anteil) * 100, dz = erg.zufrieden - vorher.zufrieden; setTimeout(((o) => () => schwebend(o.x, o.y, `${pkt(da)} % Rad · ${pkt(dz)} Zufr.`, da >= 0 ? 'gut' : 'schlecht'))(wirkungOrt), 700); wirkungOrt = null; } ortAktuell = null; updateSurvey(true); if (overlay === 'verkehr' || overlay === 'zuf') dirty = true; if (selected) inspect(selected); };
+    if (wirkungOrt && vorher) { const da = (erg.anteil - vorher.anteil) * 100, dz = erg.zufrieden - vorher.zufrieden; setTimeout(((o) => () => schwebend(o.x, o.y, `${pkt(da)} % Rad · ${pkt(dz)} Zufr.`, da >= 0 ? 'gut' : 'schlecht'))(wirkungOrt), 700); wirkungOrt = null; } ortAktuell = null; updateSurvey(true); if (overlay === 'verkehr' || overlay === 'kfz' || overlay === 'zuf') dirty = true; if (selected) inspect(selected); };
   $('vk-status').textContent = 'Verkehrsnetz wird geladen …';
   verkehr.laden().then(() => verkehr.rechnen()).catch(e => { $('vk-status').textContent = 'Verkehr: ' + e.message; });
 }
@@ -444,8 +448,9 @@ const pkt = v => (v >= 0 ? '+' : '−') + fmt(Math.abs(v), 1);
 function renderVerkehr(e, v) {
   const d = v ? ` <span class="${e.anteil >= v.anteil ? 'up' : 'down'}">${pkt((e.anteil - v.anteil) * 100)}</span>` : '';
   const dz = v ? ` <span class="${e.zufrieden >= v.zufrieden ? 'up' : 'down'}">${pkt(e.zufrieden - v.zufrieden)}</span>` : '';
-  $('verkehr').innerHTML = `<dl class="kv"><dt>Radanteil</dt><dd>${fmt(e.anteil * 100, 1)} %${d}</dd><dt>Radfahrten am Tag</dt><dd>${fmt(e.rad)}</dd><dt>Rad-km am Tag</dt><dd>${fmt(e.radKm)}</dd><dt>Zufriedenheit</dt><dd>${fmt(e.zufrieden, 1)}${dz}</dd><dt>Einwohner im Spielgebiet${verkehr.netz && verkehr.netz.ew_quelle === 'zensus2022' ? ' (Zensus 2022)' : ' (geschätzt)'}</dt><dd>${fmt(e.ew || verkehr.ewSumme)}</dd></dl>`;
-  $('vk-status').textContent = `berechnet in ${fmt(e.ms / 1000, 1)} s · Werte sind Modellschätzungen`;
+  $('verkehr').innerHTML = `<dl class="kv"><dt>Radanteil</dt><dd>${fmt(e.anteil * 100, 1)} %${d}</dd><dt>Radfahrten am Tag</dt><dd>${fmt(e.rad)}</dd><dt>Rad-km am Tag</dt><dd>${fmt(e.radKm)}</dd><dt>Zufriedenheit</dt><dd>${fmt(e.zufrieden, 1)}${dz}</dd><dt>Kfz-Fahrten am Tag (Binnenverkehr)</dt><dd>${fmt(e.autoFahrten)}${v ? ` <span class="${e.autoFahrten <= v.autoFahrten ? 'up' : 'down'}">${e.autoFahrten > v.autoFahrten ? '+' : '−'}${fmt(Math.abs(e.autoFahrten - v.autoFahrten))}</span>` : ''}</dd><dt>Kfz-km am Tag (alle Straßen)</dt><dd>${fmt(e.kfzKm)}</dd><dt>davon im Stau (> 90 % ausgelastet)</dt><dd>${fmt(e.kfzKm ? e.stauKm / e.kfzKm * 100 : 0, 1)} %</dd><dt>Einwohner im Spielgebiet${verkehr.netz && verkehr.netz.ew_quelle === 'zensus2022' ? ' (Zensus 2022)' : ' (geschätzt)'}</dt><dd>${fmt(e.ew || verkehr.ewSumme)}</dd></dl>`;
+  const ei = e.eichung;
+  $('vk-status').innerHTML = `berechnet in ${fmt(e.ms / 1000, 1)} s · Werte sind Modellschätzungen` + (ei && ei.zaehlstellen ? `<br>Autoverkehr geeicht an ${fmt(ei.zaehlstellen)} gezählten Abschnitten (Straßen.NRW): Faktor ${fmt(ei.k, 2)}${ei.kRoh !== ei.k ? ` (begrenzt, roh ${fmt(ei.kRoh, 2)})` : ''}${ei.abweichung !== null ? `, mittlere Abweichung ${fmt(ei.abweichung * 100)} %` : ''}${ei.korrelation !== null ? `, Korrelation ${fmt(ei.korrelation, 2)}` : ''}. Der Faktor deckt auch Durchgangs- und Fernverkehr ab, den das Modell nicht kennt.` : '<br>Keine Zählstellen im Spielgebiet: Autoverkehr ungeeicht.');
   $('top-anteil').innerHTML = `${fmt(e.anteil * 100, 1)} %${v ? ` <span class="${e.anteil >= v.anteil ? 'up' : 'down'}" style="font-size:12px">${pkt((e.anteil - v.anteil) * 100)}</span>` : ''}`;
   $('top-zuf').innerHTML = `${fmt(e.zufrieden, 0)}${v ? ` <span class="${e.zufrieden >= v.zufrieden ? 'up' : 'down'}" style="font-size:12px">${pkt(e.zufrieden - v.zufrieden)}</span>` : ''}`;
   renderSpiel();
@@ -458,6 +463,7 @@ function drawOverlay(top) {
   const minW = 2.5 / cam.z;
   if (overlay === 'route') return drawRoutes(lod);
   if (overlay === 'verkehr') return drawVerkehr(top);
+  if (overlay === 'kfz') return drawVerkehr(top, true);
   if (overlay === 'zuf') return drawZufrieden();
   if (overlay === 'steig') return drawSteigung(top);
   if (overlay === 'unf') return drawUnfaelle();
@@ -565,7 +571,8 @@ function inspect(r) {
   if (routeSel && m.routes && m.routes.includes(routeSel)) { const rk = routeKanten(routeSel); h += `<button class="bev bau-btn" data-route-mark="1"><span>Route „${esc(routeSel)}“ markieren</span><b>${rk.length} Abschn.</b></button><div class="note">Markiert alle geladenen Abschnitte (${fmt(rk.reduce((a, x) => a + x.len, 0) / 1000, 1)} km). Mehr laden: herauszoomen bis „Ort“.</div>`; }
   const vol = verkehr ? verkehr.volumen(r.id) : null, stg = verkehr && verkehr.netz ? verkehr.steigung(r.id) : null;
   const dtv = verkehr && verkehr.netz ? verkehr.dtv(r.id) : null, unf = verkehr && verkehr.netz ? verkehr.unfaelle(r.id) : null, jahre = man.daten && man.daten.unfaelle ? man.daten.unfaelle.jahre : null;
-  if (bv.use || vol || stg || dtv || unf) h += `<dl class="kv">${bv.use ? `<dt>Risiko fürs Rad</dt><dd>${Math.round(bv.risk * 100)} / 100</dd><dt>Fahrkomfort</dt><dd>${Math.round(bv.comfort * 100)} %</dd>` : ''}${vol !== null ? `<dt>Radverkehr (Modell)</dt><dd>${fmt(vol)} / Tag</dd>` : ''}${stg ? `<dt>Steigung</dt><dd>bis ${fmt(stg.steil, 1)} % · ↗ ${fmt(stg.auf)} / ↘ ${fmt(stg.ab)} Hm</dd>` : ''}${dtv ? `<dt>Kfz/Tag (Zählung)</dt><dd>${fmt(dtv.kfz)} · Schwerverkehr ${fmt(dtv.sv / Math.max(1, dtv.kfz) * 100, 0)} %</dd>` : ''}${unf && jahre ? `<dt>Radunfälle ${jahre[0]}–${jahre[jahre.length - 1]}</dt><dd>${unf.rad ? `<b style="color:${unf.schwer ? 'var(--bad)' : 'var(--warn)'}">${unf.rad}</b>${unf.schwer ? ` (${unf.schwer} schwer)` : ''}` : 'keine'}</dd>` : ''}</dl>`;
+  const kfz = verkehr && verkehr.erg ? verkehr.kfz(r.id) : null, kfz0 = verkehr && verkehr.basis ? verkehr.kfzGrund(r.id) : null, ausl = kfz ? verkehr.auslastung(r.id) : 0;
+  if (bv.use || vol || stg || dtv || unf || kfz) h += `<dl class="kv">${bv.use ? `<dt>Risiko fürs Rad</dt><dd>${Math.round(bv.risk * 100)} / 100</dd><dt>Fahrkomfort</dt><dd>${Math.round(bv.comfort * 100)} %</dd>` : ''}${vol !== null ? `<dt>Radverkehr (Modell)</dt><dd>${fmt(vol)} / Tag</dd>` : ''}${stg ? `<dt>Steigung</dt><dd>bis ${fmt(stg.steil, 1)} % · ↗ ${fmt(stg.auf)} / ↘ ${fmt(stg.ab)} Hm</dd>` : ''}${kfz !== null && kfz > 0 ? `<dt>Kfz/Tag (Modell${dtv ? ', geeicht' : ''})</dt><dd>${fmt(kfz)}${kfz0 !== null && Math.abs(kfz - kfz0) >= Math.max(20, kfz0 * .03) ? ` <span class="${kfz < kfz0 ? 'up' : 'down'}">${kfz > kfz0 ? '+' : '−'}${fmt(Math.abs(kfz - kfz0))}</span>` : ''}</dd><dt>Auslastung</dt><dd${ausl > .9 ? ' style="color:var(--bad)"' : ausl > .7 ? ' style="color:var(--warn)"' : ''}>${fmt(ausl * 100)} %${ausl > .9 ? ' · Stau' : ''}</dd>` : ''}${dtv ? `<dt>Kfz/Tag (Zählung)</dt><dd>${fmt(dtv.kfz)} · Schwerverkehr ${fmt(dtv.sv / Math.max(1, dtv.kfz) * 100, 0)} %</dd>` : ''}${unf && jahre ? `<dt>Radunfälle ${jahre[0]}–${jahre[jahre.length - 1]}</dt><dd>${unf.rad ? `<b style="color:${unf.schwer ? 'var(--bad)' : 'var(--warn)'}">${unf.rad}</b>${unf.schwer ? ` (${unf.schwer} schwer)` : ''}` : 'keine'}</dd>` : ''}</dl>`;
   if (est.size) h += `<div class="est">Geschätzt, weil in OSM nicht eingetragen: ${[...est].map(e => EST[e] || e).join(', ')}</div>`;
   const skip = new Set(['name', 'ref', 'est', 'routes']);
   h += `<details class="raw"><summary>Spielmodell (alle Felder)</summary><dl class="kv">${Object.entries(m).filter(([k]) => !skip.has(k)).map(([k, v]) => `<dt>${k}</dt><dd>${esc(Array.isArray(v) ? v.join(', ') : v)}</dd>`).join('')}</dl></details>`;
@@ -763,10 +770,11 @@ function setOverlay(o) {
   if (overlay === 'net') lg.innerHTML = '<div class="lbl">Radnetz</div><div class="keys"><i style="background:#e0563a"></i><span>Radweg / Fahrradstraße</span><i style="background:#f08a3a"></i><span>Hochbord-Radweg</span><i style="background:#f2c230"></i><span>Rad-/Schutzstreifen</span><i style="background:#9cc23e"></i><span>Tempo ≤ 30, Mischverkehr</span><i style="background:#9a9fa6"></i><span>Tempo 50+, Mischverkehr</span><i style="background:#7e8279"></i><span>Radweg daneben</span><i style="background:#c7b287"></i><span>Feld- und Waldweg</span><i style="background:rgba(31,90,166,.55);height:8px"></i><span>Ausgeschilderte Radroute</span></div>';
   if (overlay === 'route') { routeSig = ''; lg.innerHTML = ''; }
   if (overlay === 'verkehr') lg.innerHTML = `<div class="lbl">Radfahrten pro Tag (Modell)</div><div class="keys">${VK_KL.map((k, i) => `<i style="background:${k[1]};height:${Math.max(3, k[2])}px"></i><span>${i < VK_KL.length - 1 ? `${k[0]}–${VK_KL[i + 1][0]}` : `ab ${k[0]}`}</span>`).join('')}</div><div class="hint">Wege zwischen Wohnorten und Zielen, umgelegt auf die angenehmsten Radrouten.</div>`;
+  if (overlay === 'kfz') lg.innerHTML = `<div class="lbl">Kfz pro Tag (Modell, an Zählstellen geeicht)</div><div class="keys">${KFZ_KL.map((k, i) => `<i style="background:${k[1]};height:${Math.max(3, k[2])}px"></i><span>${i < KFZ_KL.length - 1 ? `${fmt(k[0])}–${fmt(KFZ_KL[i + 1][0])}` : `ab ${fmt(k[0])}`}</span>`).join('')}<i style="background:rgba(255,40,60,.35);height:8px"></i><span>über 90 % ausgelastet</span></div><div class="hint">Gezählte Straßen: Zählwert von Straßen.NRW plus die Änderung durch deine Bauten. Tempo 30 und Fahrradstraßen verdrängen Durchgangsverkehr.</div>`;
   if (overlay === 'unf') { legendeUnfaelle(); ladeUnfaelle(); }
   if (overlay === 'steig') lg.innerHTML = `<div class="lbl">Steigung (steilstes Stück über 30 m)</div><div class="keys">${STEIG.map((k, i) => `<i style="background:${k[1]}"></i><span>${i < STEIG.length - 1 ? `${k[0] / 10}–${STEIG[i + 1][0] / 10} %` : `ab ${k[0] / 10} %`}</span>`).join('')}</div><div class="hint">Aus dem Geländemodell. Steigungen fließen ins Verkehrsmodell ein.</div>`;
   if (overlay === 'zuf') lg.innerHTML = '<div class="lbl">Zufriedenheit mit dem Radnetz</div><div class="bar" style="background:linear-gradient(90deg,#d8452f,#e2c43a,#3fae4a)"></div><div class="ends"><span>unzufrieden</span><span>zufrieden</span></div><div class="hint">Je 500-m-Zelle: wie direkt und stressfrei die Radwege zu den Zielen bis 10 km sind.</div>';
-  if (overlay && !['route', 'verkehr', 'zuf', 'steig', 'unf'].includes(overlay) && levelIndex() < 2) lg.innerHTML += '<div class="hint">Weit herausgezoomt: nur Haupt- und Sammelstraßen.</div>';
+  if (overlay && !['route', 'verkehr', 'kfz', 'zuf', 'steig', 'unf'].includes(overlay) && levelIndex() < 2) lg.innerHTML += '<div class="hint">Weit herausgezoomt: nur Haupt- und Sammelstraßen.</div>';
 }
 
 /* ----------------------------- Eingabe ----------------------------- */
@@ -1041,7 +1049,7 @@ function zeigeMenu(art = 'start') {
   } else if (art === 'hilfe') {
     const T = [['Mausrad / + −', 'Zoomen – weit hinein wechselt in die Spielansicht'], ['Ziehen, Pfeile', 'Verschieben'], ['1–9', 'Strecken-Werkzeuge'], ['A / K', 'Ampel / Kreisverkehr'], ['Klick, Klick, Enter', 'Strecke: Start, Ziel, bauen'],
       ['Rücktaste / Esc', 'Wegpunkt zurück / abbrechen'], ['Strg+Z', 'Rückgängig'], ['I', 'Spielansicht ein/aus'], ['Q / E', 'Spielansicht drehen'], ['U', 'Tageszeit'], ['H', 'Häuser flach'],
-      ['Z S R T V F B', 'Ebenen: Zustand, Sicherheit, Radnetz, Routen, Verkehr, Zufriedenheit, Steigung'], ['G / L / N', 'Relief, Live-Verkehr, Namen'], ['M', 'Menü']];
+      ['Z S R T V P F B X', 'Ebenen: Zustand, Sicherheit, Radnetz, Routen, Radverkehr, Autoverkehr, Zufriedenheit, Steigung, Unfälle'], ['G / L / N', 'Relief, Live-Verkehr, Namen'], ['M', 'Menü']];
     k.innerHTML = `<h2>Steuerung</h2><div class="tastenliste">${T.map(([a, b]) => `<kbd>${a}</kbd><span>${b}</span>`).join('')}</div><button class="btn zurueck" data-m="${hatAutosave() ? 'pause' : 'start'}">Zurück</button>`;
   }
 }
@@ -1188,7 +1196,7 @@ window.addEventListener('keydown', e => {
   if (modus === 'iso' && (k === 'q' || k === 'e')) { Iso.drehen(k === 'q' ? -1 : 1); dirty = true; return; }
   if (modus === 'iso' && k === 'h') { $('t-haus').click(); return; }
   if (modus === 'iso' && k === 'u') { $('t-zeit').click(); return; }
-  if (k === 'z') setOverlay('cond'); if (k === 's') setOverlay('risk'); if (k === 'r') setOverlay('net'); if (k === 't') setOverlay('route'); if (k === 'v') setOverlay('verkehr'); if (k === 'f') setOverlay('zuf'); if (k === 'l') setLive(!liveAn); if (k === 'b') setOverlay('steig'); if (k === 'x') setOverlay('unf'); if (k === 'g') setRelief(!reliefAn); if (k === 'i') $('t-iso').click(); if (k === 'n') $('t-names').click();
+  if (k === 'z') setOverlay('cond'); if (k === 's') setOverlay('risk'); if (k === 'r') setOverlay('net'); if (k === 't') setOverlay('route'); if (k === 'v') setOverlay('verkehr'); if (k === 'p') setOverlay('kfz'); if (k === 'f') setOverlay('zuf'); if (k === 'l') setLive(!liveAn); if (k === 'b') setOverlay('steig'); if (k === 'x') setOverlay('unf'); if (k === 'g') setRelief(!reliefAn); if (k === 'i') $('t-iso').click(); if (k === 'n') $('t-names').click();
   if (k === '+' || k === '=') { radT = 0; $('z-in').click(); } if (k === '-') { radT = 0; $('z-out').click(); }
   const pan = 120 / pxProM();
   if (k === 'arrowleft') cam.x -= pan; if (k === 'arrowright') cam.x += pan; if (k === 'arrowup') cam.y -= pan; if (k === 'arrowdown') cam.y += pan;

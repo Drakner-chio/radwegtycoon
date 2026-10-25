@@ -82,7 +82,7 @@ Pipeline-Lauf reicht ein Neuladen der Seite; nach `git pull` das Image neu bauen
 Spielen: Im Hauptmenü „Neues Spiel“, Spielgebiet als Kreis auf der Karte wählen (oder ganze Region).
 Spielstände: sechs Speicherplätze im Browser plus Export/Import als Datei (Menü: Logo oben links oder `M`).
 Bauen: Werkzeug links wählen (Tasten 1–9, A Ampel, K Kreisverkehr), Start und Ziel anklicken – die Strecke
-folgt der Straße –, mit Enter bauen; Strg+Z macht rückgängig. Tasten: Mausrad/+/− zoomen, Pfeile verschieben, `Z` Zustand, `S` Sicherheit, `R` Radnetz, `T` Radrouten, `V` Verkehr, `B` Steigung, `X` Unfälle, `G` Relief, `F` Zufriedenheit, `L` Live-Verkehr, `I` Spielansicht (auch durch weites Hineinzoomen), `N` Namen.
+folgt der Straße –, mit Enter bauen; Strg+Z macht rückgängig. Tasten: Mausrad/+/− zoomen, Pfeile verschieben, `Z` Zustand, `S` Sicherheit, `R` Radnetz, `T` Radrouten, `V` Radverkehr, `P` Autoverkehr, `B` Steigung, `X` Unfälle, `G` Relief, `F` Zufriedenheit, `L` Live-Verkehr, `I` Spielansicht (auch durch weites Hineinzoomen), `N` Namen.
 In der Spielansicht: `Q`/`E` drehen, `H` Häuser flach, `U` Tageszeit.
 
 ## Lizenz der Kartendaten

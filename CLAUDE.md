@@ -7,7 +7,7 @@ Doku, UI, Commit-Messages): Deutsch.
 ## Stand
 - `pipeline/`: OSM → Kacheln, siehe `docs/ARCHITEKTUR.md` und `docs/KACHELFORMAT.md`.
 - `viewer/`: Kartenviewer + Spiel (statisch, nginx), lädt `daten/<slug>/karte/`; Aufruf `?region=<slug>`.
-  Bauen: `js/game.js`; Verkehr Ebene 1: `pipeline/rtc/netz.py` → `netz.json.gz`, `js/verkehr*.js`;
+  Bauen: `js/game.js`; Verkehr Ebene 1 (Rad + Auto, Eichung an Zählstellen): `pipeline/rtc/netz.py` → `netz.json.gz`, `js/verkehr*.js`;
   Ebene 2 (Live-Verkehr): `js/live.js`. Höhen: `pipeline/rtc/hoehe.py` → `hoehe/`, `js/hoehe.js`.
   Echte Daten (Zensus, Unfallatlas, Verkehrswerte NRW): `pipeline/rtc/daten.py`.
   Spielansicht (isometrisch): `js/isoansicht.js`; Werkzeuge: `js/werkzeug.js`; Spielstände: `js/speicher.js`.

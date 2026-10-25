@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import collections
 import csv
+import datetime
 import gzip
 import io
 import json
@@ -26,7 +27,7 @@ from .build import log
 
 ZENSUS_URL = "https://www.destatis.de/static/DE/zensus/gitterdaten/Zensus2022_Bevoelkerungszahl.zip"
 UNFALL_URL = "https://www.opengeodata.nrw.de/produkte/transport_verkehr/unfallatlas/Unfallorte{jahr}_EPSG25832_CSV.zip"
-UNFALL_JAHRE = range(2016, 2031)  # vorhandene Jahre werden genommen, fehlende übersprungen
+UNFALL_JAHRE = range(2016, datetime.date.today().year + 1)  # vorhandene Jahre werden genommen, fehlende übersprungen
 VERKEHRSWERTE_URL = "https://www.opengeodata.nrw.de/produkte/transport_verkehr/strassennetz/Verkehrswerte_EPSG25832_Shape.zip"
 
 QUELLEN = {
@@ -59,13 +60,26 @@ def hole(url: str, ziel: pathlib.Path, pflicht: bool = True) -> pathlib.Path | N
         return None
 
 
-def csv_aus_zip(pfad: pathlib.Path, muster: str = ".csv"):
-    """Zeilen (dict) der ersten passenden CSV im ZIP; Trennzeichen und Kodierung werden erkannt."""
+def _tabelle_aus_zip(z: zipfile.ZipFile, muster: str) -> bytes | None:
+    """Erste Tabelle im ZIP: .csv bevorzugt, sonst .txt (ältere Jahrgänge), auch in einem inneren ZIP."""
+    namen = [n for n in z.namelist() if not n.endswith("/") and muster.lower() in n.lower()]
+    for endung in (".csv", ".txt"):
+        passend = sorted(n for n in namen if n.lower().endswith(endung))
+        if passend:
+            return z.read(passend[0])
+    for n in sorted(n for n in z.namelist() if n.lower().endswith(".zip")):
+        with zipfile.ZipFile(io.BytesIO(z.read(n))) as innen:
+            if (roh := _tabelle_aus_zip(innen, muster)) is not None:
+                return roh
+    return None
+
+
+def csv_aus_zip(pfad: pathlib.Path, muster: str = ""):
+    """Zeilen (dict) der ersten passenden Tabelle im ZIP; Trennzeichen und Kodierung werden erkannt."""
     with zipfile.ZipFile(pfad) as z:
-        namen = sorted(n for n in z.namelist() if n.lower().endswith(".csv") and muster.lower() in n.lower())
-        if not namen:
-            raise ValueError(f"keine CSV mit '{muster}' in {pfad.name}")
-        roh = z.read(namen[0])
+        roh = _tabelle_aus_zip(z, muster)
+        if roh is None:
+            raise ValueError(f"keine Tabelle (.csv/.txt) in {pfad.name}: {', '.join(z.namelist()[:6])}")
     for kod in ("utf-8-sig", "cp1252"):
         try:
             text = roh.decode(kod)
@@ -254,8 +268,20 @@ def unfaelle(zips: list[pathlib.Path], bbox_utm, rand: float = 200.0) -> list[di
     x0, y0, x1, y1 = bbox_utm
     out = []
     for p in zips:
-        for z in csv_aus_zip(p):
-            x, y = zahl(feld(z, "LINREFX", "XGCSWGS84_UTM")), zahl(feld(z, "LINREFY"))
+        # ein unlesbarer Jahrgang (anderes Format, defekter Download) soll nicht den ganzen Schritt abbrechen
+        try:
+            zeilen = list(csv_aus_zip(p))
+        except (ValueError, zipfile.BadZipFile, OSError) as e:
+            log(f"Daten: {p.name} übersprungen ({e})")
+            if isinstance(e, zipfile.BadZipFile):
+                p.unlink(missing_ok=True)  # beim nächsten Lauf neu laden
+            continue
+        if zeilen and feld(zeilen[0], "LINREFX") is None:
+            log(f"Daten: {p.name} übersprungen (keine Spalte LINREFX; Spalten: {', '.join(list(zeilen[0])[:12])})")
+            continue
+        vorher = len(out)
+        for z in zeilen:
+            x, y = zahl(feld(z, "LINREFX")), zahl(feld(z, "LINREFY"))
             if x is None or y is None or not (x0 - rand <= x <= x1 + rand and y0 - rand <= y <= y1 + rand):
                 continue
             g = lambda *n: int(zahl(feld(z, *n)) or 0)  # noqa: E731
@@ -264,6 +290,7 @@ def unfaelle(zips: list[pathlib.Path], bbox_utm, rand: float = 200.0) -> list[di
                         "licht": g("ULICHTVERH", "LICHT"), "rad": g("IstRad"), "pkw": g("IstPKW"), "fuss": g("IstFuss"),
                         "krad": g("IstKrad"), "gkfz": g("IstGkfz"), "sonst": g("IstSonstige"),
                         "nass": g("USTRZUSTAND", "IstStrasse", "STRZUSTAND")})
+        log(f"Daten: {p.name}: {tsd(len(out) - vorher)} Unfälle im Gebiet")
     out.sort(key=lambda u: (u["jahr"], u["e"], u["n"]))
     return out
 

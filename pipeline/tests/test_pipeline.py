@@ -293,3 +293,22 @@ def test_echte_daten(built, tmp_path):
     assert abs(sum(netz["zonen"]["ew"]) - 200) < 1           # 120 + 80; die ferne Zelle liegt außerhalb
     u = json.loads(_gz.decompress((root / "unfaelle.json.gz").read_bytes()))
     assert u["punkte"]["kante"] == [i] and u["jahre"] == [2023]
+
+
+def test_unfaelle_alte_jahrgaenge(tmp_path):
+    """Ältere Jahrgänge liefern .txt statt .csv; unlesbare ZIPs werden übersprungen statt abzubrechen."""
+    import zipfile as _zf
+    from rtc.daten import unfaelle
+    kopf = "OBJECTID;UJAHR;UMONAT;USTUNDE;UWOCHENTAG;UKATEGORIE;UART;UTYP1;LICHT;IstRad;IstPKW;IstFuss;IstKrad;IstSonstig;LINREFX;LINREFY"
+    zeile = "1;2016;5;8;3;2;5;3;0;1;1;0;0;0;100,5;200,5"
+    alt = tmp_path / "Unfallorte2016_EPSG25832_CSV.zip"
+    with _zf.ZipFile(alt, "w") as z:
+        z.writestr("txt/Unfallorte2016_LinRef.txt", ("\n".join([kopf, zeile])).encode("cp1252"))
+    leer = tmp_path / "Unfallorte2017_EPSG25832_CSV.zip"
+    with _zf.ZipFile(leer, "w") as z:
+        z.writestr("liesmich.pdf", b"%PDF")
+    kaputt = tmp_path / "Unfallorte2018_EPSG25832_CSV.zip"
+    kaputt.write_bytes(b"<html>Fehler</html>")
+    liste = unfaelle([alt, leer, kaputt], (0, 0, 1000, 1000))
+    assert len(liste) == 1 and liste[0]["jahr"] == 2016 and liste[0]["rad"] == 1 and liste[0]["kat"] == 2
+    assert not kaputt.exists()  # defekter Download wird beim nächsten Lauf neu geladen
