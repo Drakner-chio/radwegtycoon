@@ -411,7 +411,7 @@ def bauen_daten(karte: pathlib.Path, quellen: pathlib.Path, was=("zensus", "unfa
             kl = netz["klassen"]
             for i, eid in enumerate(K["id"]):
                 k = kanten.get(eid)
-                if not k or k["cls"] not in ("auto", "L", "dorf", "wohn", "zufahrt"):
+                if not k or k["cls"] not in ("auto", "L", "dorf"):  # Wohnstraßen/Zufahrten neben B/L/K-Straßen sind Fehlzuordnungen
                     continue
                 stimmen = collections.Counter()
                 for f in (.2, .5, .8):

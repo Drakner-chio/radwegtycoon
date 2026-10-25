@@ -127,14 +127,13 @@ geschätzt ist.
   Kürzeste-Wege-Baum. Zufriedenheit je Zelle: wie direkt und stressarm die Ziele bis 10 km erreichbar sind.
   Wege innerhalb einer Zelle sind nicht modelliert. Alle Werte: `PARAM`.
 - Autoverkehr (gleicher Durchlauf, zweiter Dijkstra je Startzelle auf Fahrzeit in Sekunden):
-  Ziele der Autofahrten nach eigenem Schwerkraftmodell mit exp(−d / 12 km) (Autofahrten sind länger);
-  Kfz-Fahrten je Ziel = Wege × (1 − Radanteil) × 0,74 (Auto statt ÖPNV) × (1 − exp(−L / 1,3 km)) (kurze Wege
-  zu Fuß) × 0,8 (Fahrer statt Mitfahrer); Suche bis 30 min. Fahrzeit = Länge / (Tempolimit × Reiseanteil je
+  Kfz-Fahrten je Ziel = Wege × (1 − Radanteil) × 0,85 (Auto statt ÖPNV) × (1 − exp(−L / 1,3 km)) (kurze Wege
+  zu Fuß) × 0,82 (Fahrer statt Mitfahrer) × 1,3 (Liefer-, Dienst- und Lkw-Verkehr), grob nach MiD für ländliche Kreise; Suche bis 30 min. Fahrzeit = Länge / (Tempolimit × Reiseanteil je
   Klasse), Einbahnstraßen nur vorwärts, Fahrradstraße und Anliegerstraßen × 4, Ampel +12 s, Kreisel +5 s
   (`AUTO` in `verkehr.js`). Die Rad-Faktoren bekommen im Mischverkehr einen Zuschlag bis 0,75 bei viel Kfz-Verkehr.
 - Grundzustand je Spielgebiet (ohne Bauten, beim ersten Rechnen): Lauf 1 frei fließend, daraus Stauzuschläge
   nach BPR `t = t0 · (1 + 0,15 · (V/C)^4)` mit Kapazität je Klasse, Lauf 2 mit Stau. Eichfaktor k = Median aus
-  Zählwert / Modell an den gezählten Kanten im Gebiet (begrenzt auf 0,6–3; er deckt Durchgangs- und Fernverkehr
+  Zählwert / Modell an den gezählten Kanten im Gebiet (nur Klassen L, auto, dorf) (begrenzt auf 0,6–3; er deckt Durchgangs- und Fernverkehr
   ab, den das Binnenmodell nicht kennt); Nebenstraßen bekommen √k (0,8–1,5).
 - Angezeigte Kfz/Tag: gezählte Kanten = Zählwert + k × (Modell − Grundzustand), sonst k × Modell; mindestens
   10 % des Grundzustands (Anlieger). Spielzüge rechnen mit den Stauzuschlägen des Grundzustands, damit ohne

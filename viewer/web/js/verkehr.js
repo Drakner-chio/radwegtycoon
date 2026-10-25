@@ -111,7 +111,9 @@ export class Verkehr {
     }
     return k;
   }
-  istHaupt(e) { if (!this._haupt) { const K = this.netz.kanten, kl = this.netz.klassen; this._haupt = Uint8Array.from(K.cls, (c, e) => AUTO.haupt.has(kl[c]) || (K.dtv && K.dtv[e] > 0) ? 1 : 0); } return this._haupt[e] === 1; }
+  // Zählwert nur auf Haupt- und Ortsdurchfahrten (ältere Netzdateien ordneten auch Nebenwege zu)
+  zaehlung(e) { const d = this.netz.kanten.dtv; if (!d || !(d[e] > 0)) return 0; const c = this.netz.klassen[this.netz.kanten.cls[e]]; return c === 'L' || c === 'auto' || c === 'dorf' ? d[e] : 0; }
+  istHaupt(e) { if (!this._haupt) { const K = this.netz.kanten, kl = this.netz.klassen; this._haupt = Uint8Array.from(K.cls, (c, e) => AUTO.haupt.has(kl[c]) || this.zaehlung(e) > 0 ? 1 : 0); } return this._haupt[e] === 1; }
   eichK(e, k) { return this.istHaupt(e) ? k : Math.min(AUTO.nebenMax, Math.max(AUTO.nebenMin, Math.sqrt(k))); }
   kapazitaet(e) { return AUTO.kap[this.netz.klassen[this.netz.kanten.cls[e]]] || 3000; }
   knotenStrafe(ohneBau = false) {
@@ -177,11 +179,11 @@ export class Verkehr {
     return st;
   }
   // Zählwert, wenn vorhanden, sonst geeichtes Modell
-  kfzVon(e, v, k) { const d = this.netz.kanten.dtv; return d && d[e] > 0 ? d[e] : v * this.eichK(e, k); }
+  kfzVon(e, v, k) { const z = this.zaehlung(e); return z > 0 ? z : v * this.eichK(e, k); }
   // Eichfaktor = Median aus Zählung / Modell an den gezählten Kanten im Spielgebiet; dazu die Abweichung
   eichen(volA) {
-    const d = this.netz.kanten.dtv, q = [], paare = [];
-    if (d) for (let e = 0; e < this.nE; e++) if (d[e] > 0 && volA[e] > 30 && this.kanteImGebiet(e)) { q.push(d[e] / volA[e]); paare.push(e); }
+    const d = Float32Array.from({ length: this.nE }, (_, e) => this.zaehlung(e)), q = [], paare = [];
+    for (let e = 0; e < this.nE; e++) if (d[e] > 0 && volA[e] > 30 && this.kanteImGebiet(e)) { q.push(d[e] / volA[e]); paare.push(e); }
     q.sort((x, y) => x - y);
     const roh = q.length ? q[q.length >> 1] : 1, k = Math.min(AUTO.eichMax, Math.max(AUTO.eichMin, roh));
     // mittlere relative Abweichung (gewichtet nach Länge) und Korrelation im log-Raum
@@ -192,7 +194,7 @@ export class Verkehr {
     // Aufschlüsselung: Median Zählung/Modell je Zählwert-Stufe und je OSM-Klasse (zeigt, wo das Modell danebenliegt)
     const gruppen = [];
     const gruppe = (name, test) => { const v = paare.filter(test).map(e => d[e] / volA[e]).sort((x, y) => x - y); if (v.length >= 5) gruppen.push({ name, n: v.length, median: v[v.length >> 1], q1: v[v.length >> 2], q3: v[(3 * v.length) >> 2] }); };
-    for (const [lo, hi] of [[0, 3000], [3000, 8000], [8000, 15000], [15000, Infinity]]) gruppe(`${lo / 1000}–${hi === Infinity ? '' : hi / 1000}${hi === Infinity ? ' und mehr' : ''} Tsd. Kfz`, e => d[e] >= lo && d[e] < hi);
+    for (const [lo, hi] of [[0, 3000], [3000, 8000], [8000, 15000], [15000, Infinity]]) gruppe(hi === Infinity ? `über ${lo / 1000} Tsd. Kfz` : `${lo / 1000}–${hi / 1000} Tsd. Kfz`, e => d[e] >= lo && d[e] < hi);
     for (const c of ['L', 'dorf', 'wohn', 'zufahrt']) gruppe(`Klasse ${c}`, e => this.netz.klassen[this.netz.kanten.cls[e]] === c);
     gruppe('Rand des Gebiets (äußere 15 %)', e => this.gebiet ? Math.hypot(this.kx[this.a[e]] - this.gebiet.x, this.ky[this.a[e]] - this.gebiet.y) > .85 * this.gebiet.r : false);
     return { k, kRoh: roh, zaehlstellen: n, abweichung: w ? ab / w : null, korrelation: r && isFinite(r) ? r : null, gruppen };
@@ -223,9 +225,10 @@ export class Verkehr {
   }
   // Kfz/Tag je Kante: gezählte Kanten = Zählwert + geeichte Änderung gegenüber dem Grundzustand, sonst geeichtes Modell
   kfzFeld(volA) {
-    const B = this.basis, d = this.netz.kanten.dtv, out = new Float32Array(this.nE);
+    const B = this.basis, out = new Float32Array(this.nE);
     for (let e = 0; e < this.nE; e++) {
-      out[e] = d && d[e] > 0 ? Math.max(.15 * d[e], d[e] + B.k * (volA[e] - B.volA[e])) : volA[e] * this.eichK(e, B.k);
+      const z = this.zaehlung(e);
+      out[e] = z > 0 ? Math.max(.15 * z, z + B.k * (volA[e] - B.volA[e])) : volA[e] * this.eichK(e, B.k);
       if (B.kfz) out[e] = Math.max(out[e], .1 * B.kfz[e]); // Anlieger- und Lieferverkehr bleibt
     }
     return out;
@@ -235,7 +238,7 @@ export class Verkehr {
   einwohner(g = this.gebiet) { let s = 0; for (let z = 0; z < this.nZ; z++) if (!g || Math.hypot(this.Z.x[z] - g.x, this.Z.y[z] - g.y) <= g.r) s += this.Z.ew[z]; return s; }
   knotenPos(id) { const v = this.kid && this.kid.get(id); return v === undefined ? null : [this.kx[v], this.ky[v]]; }
   // Echte Daten je Kante (Pipeline-Schritt „daten“): gezählter Kfz-Verkehr und Radunfälle
-  dtv(id) { const e = this.idx && this.idx.get(id), K = this.netz && this.netz.kanten; if (e === undefined || !K || !K.dtv || K.dtv[e] < 0) return null; return { kfz: K.dtv[e], sv: K.dtv_sv[e] }; }
+  dtv(id) { const e = this.idx && this.idx.get(id), K = this.netz && this.netz.kanten; if (e === undefined || !K || !K.dtv || !(this.zaehlung(e) > 0)) return null; return { kfz: K.dtv[e], sv: K.dtv_sv[e] }; }
   unfaelle(id) { const e = this.idx && this.idx.get(id), K = this.netz && this.netz.kanten; if (e === undefined || !K || !K.unf_rad) return null; return { rad: K.unf_rad[e], schwer: K.unf_rad_schwer[e] }; }
   kfz(id) { const e = this.idx && this.idx.get(id); return e === undefined || !this.erg ? null : this.erg.kfz[e]; }
   kfzGrund(id) { const e = this.idx && this.idx.get(id); return e === undefined || !this.basis || !this.basis.kfz ? null : this.basis.kfz[e]; }

@@ -18,11 +18,14 @@ export const PARAM = {
   rad: { basis: 0.38, halbKm: 4.2, form: 2.4, qRef: 1.25, qStrafe: 1.1, max: 0.65 },
   zufriedenKm: 10,        // Zufriedenheit: Wege bis zu dieser Länge zählen
   // Auto: Anteil der Nicht-Rad-Wege mit dem Auto (Rest ÖPNV), kurze Wege eher zu Fuß, Fahrer statt Mitfahrer
+  // Grobe Werte nach „Mobilität in Deutschland“ für ländliche Kreise: gut die Hälfte der Wege über die Zellgrenze
+  // fährt man selbst Auto. anteil = Auto statt ÖPNV, fahrer = Fahrer statt Mitfahrer, wirtschaft = Zuschlag für
+  // Liefer-, Dienst- und Lkw-Verkehr, den die Wege der Einwohner nicht enthalten.
   // abfallKm: Zielwahl der Autofahrten (12 km brachte in Lippe keine bessere Eichung, daher wie beim Rad 6 km)
-  auto: { anteil: 0.74, fussKm: 1.3, fahrer: 0.8, grenzeSek: 1800, abfallKm: 6 },
+  auto: { anteil: 0.85, fussKm: 1.3, fahrer: 0.82, wirtschaft: 1.3, grenzeSek: 1800, abfallKm: 6 },
 };
 // Kfz-Fahrten (Fahrzeuge) für einen Weg der Länge L km mit Radanteil pr
-export const autoFahrten = (T, L, pr, p = PARAM.auto) => T * (1 - pr) * p.anteil * (1 - Math.exp(-L / p.fussKm)) * p.fahrer;
+export const autoFahrten = (T, L, pr, p = PARAM.auto) => T * (1 - pr) * p.anteil * (1 - Math.exp(-L / p.fussKm)) * p.fahrer * p.wirtschaft;
 
 // Graph aus der Netzdatei (Spalten) in CSR-Form bringen
 export function baueGraph(netz) {
