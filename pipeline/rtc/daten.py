@@ -27,7 +27,9 @@ from .build import log
 
 ZENSUS_URL = "https://www.destatis.de/static/DE/zensus/gitterdaten/Zensus2022_Bevoelkerungszahl.zip"
 UNFALL_URL = "https://www.opengeodata.nrw.de/produkte/transport_verkehr/unfallatlas/Unfallorte{jahr}_EPSG25832_CSV.zip"
-UNFALL_JAHRE = range(2016, datetime.date.today().year + 1)  # vorhandene Jahre werden genommen, fehlende übersprungen
+# NRW ist erst ab 2019 im Unfallatlas; frühere Jahre enthielten nur Nachbarländer (z. B. Niedersachsen).
+# Damit alle Teile des Gebiets denselben Zeitraum haben, beginnen wir 2019.
+UNFALL_JAHRE = range(2019, datetime.date.today().year + 1)  # vorhandene Jahre werden genommen, fehlende übersprungen
 VERKEHRSWERTE_URL = "https://www.opengeodata.nrw.de/produkte/transport_verkehr/strassennetz/Verkehrswerte_EPSG25832_Shape.zip"
 
 QUELLEN = {
